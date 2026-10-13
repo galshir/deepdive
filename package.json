@@ -1,0 +1,263 @@
+{
+  "name": "deepdive-mysql",
+  "displayName": "DeepDive \u2014 Visual MySQL Explorer",
+  "description": "Dive into your MySQL servers visually: bubble canvas explorer, schema relationship graphs, a filterable data browser, a visual query builder and a SQL editor \u2014 across multiple connections.",
+  "version": "0.1.0",
+  "publisher": "barmelamed",
+  "license": "MIT",
+  "private": true,
+  "icon": "media/icon.png",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Data Science",
+    "Visualization",
+    "Other"
+  ],
+  "keywords": [
+    "mysql",
+    "mariadb",
+    "database",
+    "sql",
+    "query builder",
+    "schema",
+    "erd",
+    "visual"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "deepdive",
+          "title": "DeepDive",
+          "icon": "media/activity.svg"
+        }
+      ]
+    },
+    "views": {
+      "deepdive": [
+        {
+          "id": "deepdive.connections",
+          "name": "Connections"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "deepdive.connections",
+        "contents": "Explore MySQL databases visually.\n[Open DeepDive Workspace](command:deepdive.openWorkspace)\n[Add MySQL Connection](command:deepdive.addConnection)\n[Add Demo Connection](command:deepdive.addDemoConnection)"
+      }
+    ],
+    "commands": [
+      {
+        "command": "deepdive.openWorkspace",
+        "title": "Open Workspace",
+        "category": "DeepDive",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "deepdive.addConnection",
+        "title": "Add MySQL Connection",
+        "category": "DeepDive",
+        "icon": "$(add)"
+      },
+      {
+        "command": "deepdive.addDemoConnection",
+        "title": "Add Demo Connection (no database needed)",
+        "category": "DeepDive"
+      },
+      {
+        "command": "deepdive.refreshConnections",
+        "title": "Refresh",
+        "category": "DeepDive",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "deepdive.connect",
+        "title": "Connect",
+        "category": "DeepDive",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "deepdive.disconnect",
+        "title": "Disconnect",
+        "category": "DeepDive",
+        "icon": "$(debug-disconnect)"
+      },
+      {
+        "command": "deepdive.removeConnection",
+        "title": "Remove Connection",
+        "category": "DeepDive",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "deepdive.runSelectionInWorkspace",
+        "title": "Open SQL in DeepDive Editor",
+        "category": "DeepDive",
+        "icon": "$(play)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "deepdive.openWorkspace",
+          "when": "view == deepdive.connections",
+          "group": "navigation@1"
+        },
+        {
+          "command": "deepdive.addConnection",
+          "when": "view == deepdive.connections",
+          "group": "navigation@2"
+        },
+        {
+          "command": "deepdive.refreshConnections",
+          "when": "view == deepdive.connections",
+          "group": "navigation@3"
+        },
+        {
+          "command": "deepdive.addDemoConnection",
+          "when": "view == deepdive.connections"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "deepdive.connect",
+          "when": "view == deepdive.connections && viewItem == connection.disconnected",
+          "group": "inline"
+        },
+        {
+          "command": "deepdive.disconnect",
+          "when": "view == deepdive.connections && viewItem == connection.connected",
+          "group": "inline"
+        },
+        {
+          "command": "deepdive.removeConnection",
+          "when": "view == deepdive.connections && viewItem =~ /^connection/"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "deepdive.runSelectionInWorkspace",
+          "when": "editorLangId == sql",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "deepdive.connect",
+          "when": "false"
+        },
+        {
+          "command": "deepdive.disconnect",
+          "when": "false"
+        },
+        {
+          "command": "deepdive.removeConnection",
+          "when": "false"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "DeepDive",
+      "properties": {
+        "deepdive.queryTimeoutMs": {
+          "type": "number",
+          "default": 30000,
+          "minimum": 1000,
+          "description": "Timeout for queries in milliseconds."
+        },
+        "deepdive.maxResultRows": {
+          "type": "number",
+          "default": 1000,
+          "minimum": 1,
+          "maximum": 100000,
+          "description": "Maximum number of rows kept in memory for a SQL editor result. Extra rows are discarded and the result is marked as truncated."
+        },
+        "deepdive.pageSize": {
+          "type": "number",
+          "default": 100,
+          "minimum": 10,
+          "maximum": 5000,
+          "description": "Rows per page in the table data browser."
+        },
+        "deepdive.maxActiveConnections": {
+          "type": "number",
+          "default": 8,
+          "minimum": 1,
+          "maximum": 64,
+          "description": "Maximum number of simultaneously connected servers."
+        },
+        "deepdive.poolSize": {
+          "type": "number",
+          "default": 4,
+          "minimum": 1,
+          "maximum": 32,
+          "description": "Connection pool size per connected server."
+        },
+        "deepdive.graph.maxTablesPerDatabase": {
+          "type": "number",
+          "default": 150,
+          "minimum": 10,
+          "description": "Maximum number of table nodes drawn around a database bubble before the rest are collapsed into a '+N more' node."
+        },
+        "deepdive.search.maxTablesPerDataSearch": {
+          "type": "number",
+          "default": 50,
+          "minimum": 1,
+          "description": "Maximum number of tables a single data search may scan."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "watch": "node scripts/build.mjs --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.webview.json --noEmit",
+    "lint": "eslint src test",
+    "test": "vitest run",
+    "test:mysql": "DEEPDIVE_MYSQL_TEST=1 vitest run test/integration/mysql.test.ts",
+    "check": "npm run typecheck && npm run lint && npm run test && npm run build && npm run smoke",
+    "package": "npm run check && vsce package --no-dependencies --allow-missing-repository --no-rewrite-relative-links",
+    "vscode:prepublish": "node scripts/build.mjs --production",
+    "dev:browser": "node scripts/build.mjs && node scripts/dev-server.mjs",
+    "smoke": "node scripts/smoke.cjs"
+  },
+  "dependencies": {
+    "@codemirror/lang-sql": "^6.8.0",
+    "@codemirror/language": "^6.13.1",
+    "@codemirror/state": "^6.5.0",
+    "@codemirror/view": "^6.36.0",
+    "@dagrejs/dagre": "^1.1.4",
+    "@lezer/highlight": "^1.2.5",
+    "@tanstack/react-table": "^8.21.3",
+    "@tanstack/react-virtual": "^3.13.0",
+    "@xyflow/react": "^12.8.0",
+    "codemirror": "^6.0.1",
+    "mysql2": "^3.14.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-resizable-panels": "^2.1.9",
+    "sql.js": "^1.13.0",
+    "zod": "^3.25.0",
+    "zustand": "^5.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.30.0",
+    "@types/node": "^20.17.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@types/sql.js": "^1.4.9",
+    "@types/vscode": "~1.90.0",
+    "@vscode/vsce": "^3.6.0",
+    "esbuild": "^0.25.0",
+    "eslint": "^9.30.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^16.0.0",
+    "typescript": "~5.8.3",
+    "typescript-eslint": "^8.35.0",
+    "vitest": "^3.2.0"
+  }
+}
