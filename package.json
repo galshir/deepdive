@@ -1,10 +1,18 @@
 {
   "name": "deepdive-mysql",
-  "displayName": "DeepDive \u2014 Visual MySQL Explorer",
-  "description": "Dive into your MySQL servers visually: bubble canvas explorer, schema relationship graphs, a filterable data browser, a visual query builder and a SQL editor \u2014 across multiple connections.",
+  "displayName": "DeepDive — Visual MySQL Explorer",
+  "description": "Dive into your MySQL servers visually: bubble canvas explorer, schema relationship graphs, a filterable data browser, a visual query builder and a SQL editor — across multiple connections.",
   "version": "0.1.0",
   "publisher": "barmelamed",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/galshir/deepdive.git"
+  },
+  "bugs": {
+    "url": "https://github.com/galshir/deepdive/issues"
+  },
+  "homepage": "https://github.com/galshir/deepdive#readme",
   "private": true,
   "icon": "media/icon.png",
   "engines": {
@@ -220,7 +228,7 @@
     "test": "vitest run",
     "test:mysql": "DEEPDIVE_MYSQL_TEST=1 vitest run test/integration/mysql.test.ts",
     "check": "npm run typecheck && npm run lint && npm run test && npm run build && npm run smoke",
-    "package": "npm run check && vsce package --no-dependencies --allow-missing-repository --no-rewrite-relative-links",
+    "package": "npm run check && vsce package --no-dependencies",
     "vscode:prepublish": "node scripts/build.mjs --production",
     "dev:browser": "node scripts/build.mjs && node scripts/dev-server.mjs",
     "smoke": "node scripts/smoke.cjs"

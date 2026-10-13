@@ -95,7 +95,7 @@ npm run package      # runs all checks, a production build, then `vsce package`
 code --install-extension deepdive-mysql-0.1.0.vsix
 ```
 
-The VSIX contains only `dist/`, `media/`, `README.md`, `CHANGELOG.md`, `LICENSE` and `package.json`. Everything, including `mysql2` and the SQLite WebAssembly file, is bundled. Before publishing to the Marketplace, add a `repository` field to `package.json`; the package script currently passes `--allow-missing-repository`.
+The VSIX contains only `dist/`, `media/`, `README.md`, `CHANGELOG.md`, `LICENSE` and `package.json`. Everything, including `mysql2` and the SQLite WebAssembly file, is bundled.
 
 ## Configuration
 
