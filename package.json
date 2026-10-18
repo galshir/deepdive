@@ -2,7 +2,7 @@
   "name": "deepdive-mysql",
   "displayName": "DeepDive — Visual MySQL Explorer",
   "description": "Dive into your MySQL servers visually: bubble canvas explorer, schema relationship graphs, a filterable data browser, a visual query builder and a SQL editor — across multiple connections.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "barmelamed",
   "license": "MIT",
   "repository": {
