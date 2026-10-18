@@ -1,8 +1,8 @@
 import type { UiSettings } from '../shared/model';
 
 export interface Settings extends UiSettings {
-  poolSize: number;
   maxActiveConnections: number;
+  historyMaxEntries: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -13,6 +13,10 @@ export const DEFAULT_SETTINGS: Settings = {
   maxTablesPerDataSearch: 50,
   poolSize: 4,
   maxActiveConnections: 8,
+  historyEnabled: true,
+  historyMaxEntries: 500,
+  multiRunMaxDatabases: 500,
+  multiRunConcurrency: 1,
 };
 
 export function toUiSettings(s: Settings): UiSettings {
@@ -22,5 +26,9 @@ export function toUiSettings(s: Settings): UiSettings {
     queryTimeoutMs: s.queryTimeoutMs,
     maxTablesPerDatabase: s.maxTablesPerDatabase,
     maxTablesPerDataSearch: s.maxTablesPerDataSearch,
+    poolSize: s.poolSize,
+    historyEnabled: s.historyEnabled,
+    multiRunMaxDatabases: s.multiRunMaxDatabases,
+    multiRunConcurrency: s.multiRunConcurrency,
   };
 }

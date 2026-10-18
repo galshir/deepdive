@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import type { ConnectionStore, SecretStore } from '../core/services/connectionManager';
+import type { KeyValueStore } from '../core/services/queryLibrary';
 import type { Settings } from '../core/settings';
 import { DEFAULT_SETTINGS } from '../core/settings';
 import type { ConnectionConfig } from '../shared/model';
@@ -16,6 +17,18 @@ export class GlobalStateConnectionStore implements ConnectionStore {
 
   async save(configs: ConnectionConfig[]): Promise<void> {
     await this.memento.update(CONNECTIONS_KEY, configs);
+  }
+}
+
+export class MementoKeyValueStore implements KeyValueStore {
+  constructor(private readonly memento: vscode.Memento) {}
+
+  get(key: string): unknown {
+    return this.memento.get<unknown>(key);
+  }
+
+  async set(key: string, value: unknown): Promise<void> {
+    await this.memento.update(key, value);
   }
 }
 
@@ -51,5 +64,9 @@ export function readSettings(): Settings {
     poolSize: clamp(c.get('poolSize'), 1, 32, d.poolSize),
     maxTablesPerDatabase: clamp(c.get('graph.maxTablesPerDatabase'), 10, 5000, d.maxTablesPerDatabase),
     maxTablesPerDataSearch: clamp(c.get('search.maxTablesPerDataSearch'), 1, 500, d.maxTablesPerDataSearch),
+    historyEnabled: c.get('history.enabled') !== false,
+    historyMaxEntries: clamp(c.get('history.maxEntries'), 10, 5000, d.historyMaxEntries),
+    multiRunMaxDatabases: clamp(c.get('multiRun.maxDatabases'), 1, 5000, d.multiRunMaxDatabases),
+    multiRunConcurrency: clamp(c.get('multiRun.concurrency'), 1, 32, d.multiRunConcurrency),
   };
 }

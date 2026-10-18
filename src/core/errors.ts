@@ -14,6 +14,8 @@ export class DeepDiveError extends Error {
   constructor(
     message: string,
     readonly code: ErrorCode,
+    /** The database server's own error code (e.g. ER_DUP_FIELDNAME), when there is one. */
+    readonly serverCode?: string,
   ) {
     super(message);
     this.name = 'DeepDiveError';
@@ -47,4 +49,11 @@ export function toSafeMessage(err: unknown, secrets: readonly string[] = []): st
 
 export function errorCode(err: unknown): ErrorCode | undefined {
   return err instanceof DeepDiveError ? err.code : undefined;
+}
+
+/** The most specific code for an error: the server's code if known, otherwise DeepDive's. */
+export function detailedErrorCode(err: unknown): string {
+  if (err instanceof DeepDiveError) return err.serverCode ?? err.code;
+  const code = (err as { code?: unknown } | undefined)?.code;
+  return typeof code === 'string' ? code : 'DB_ERROR';
 }

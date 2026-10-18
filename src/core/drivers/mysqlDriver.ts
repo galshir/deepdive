@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import * as mysql from 'mysql2';
 import type { FieldPacket, Pool, PoolConnection, PoolOptions, QueryError, ResultSetHeader } from 'mysql2';
-import type { CellValue, ColumnInfo, ConnectionConfig, DatabaseInfo, DatabaseSchema, IndexInfo, QueryResult, ResultColumn, TableDetails, TableInfo } from '../../shared/model';
+import type { CellValue, ColumnInfo, ConnectionConfig, DatabaseInfo, DatabaseSchema, IndexInfo, QueryResult, ResultColumn, TableDetails, TableInfo, TableLocation } from '../../shared/model';
 import { DeepDiveError } from '../errors';
 import type { Statement } from '../sql/edits';
 import { escapeLike, quoteIdent } from '../sql/identifiers';
@@ -34,11 +34,11 @@ export function friendlyMysqlError(err: unknown, config: Pick<ConnectionConfig, 
     case 'ER_TABLEACCESS_DENIED_ERROR':
     case 'ER_COLUMNACCESS_DENIED_ERROR':
     case 'ER_SPECIFIC_ACCESS_DENIED_ERROR':
-      return new DeepDiveError(`Permission denied: ${e.sqlMessage ?? e.message ?? code}`, 'DB_ERROR');
+      return new DeepDiveError(`Permission denied: ${e.sqlMessage ?? e.message ?? code}`, 'DB_ERROR', code);
     case 'ER_CANT_EXECUTE_IN_READ_ONLY_TRANSACTION':
-      return new DeepDiveError('The statement tried to write inside a read-only transaction and was rejected by MySQL.', 'READ_ONLY');
+      return new DeepDiveError('The statement tried to write inside a read-only transaction and was rejected by MySQL.', 'READ_ONLY', code);
     case 'ER_BAD_DB_ERROR':
-      return new DeepDiveError(e.sqlMessage ?? 'Unknown database', 'NOT_FOUND');
+      return new DeepDiveError(e.sqlMessage ?? 'Unknown database', 'NOT_FOUND', code);
     case 'PROTOCOL_CONNECTION_LOST':
     case 'ECONNRESET':
     case 'EPIPE':
@@ -47,9 +47,9 @@ export function friendlyMysqlError(err: unknown, config: Pick<ConnectionConfig, 
     case 'HANDSHAKE_NO_SSL_SUPPORT':
       return new DeepDiveError(`TLS handshake failed: ${e.message ?? code}`, 'CONNECTION');
     default:
-      if (e.sqlMessage) return new DeepDiveError(`${code ? `${code}: ` : ''}${e.sqlMessage}`, 'DB_ERROR');
+      if (e.sqlMessage) return new DeepDiveError(`${code ? `${code}: ` : ''}${e.sqlMessage}`, 'DB_ERROR', code || undefined);
       if (/certificate|self[- ]signed|SSL|TLS/i.test(e.message ?? '')) return new DeepDiveError(`TLS error: ${e.message}`, 'CONNECTION');
-      return new DeepDiveError(e.message ?? 'Unknown MySQL error', code.startsWith('ER_') ? 'DB_ERROR' : 'CONNECTION');
+      return new DeepDiveError(e.message ?? 'Unknown MySQL error', code.startsWith('ER_') ? 'DB_ERROR' : 'CONNECTION', code || undefined);
   }
 }
 
@@ -182,6 +182,27 @@ export class MysqlDriver implements DbDriver {
       [database],
     );
     return this.tableRows(rows);
+  }
+
+  async showCreateTable(database: string, table: string): Promise<string> {
+    const rows = await this.meta(`SHOW CREATE TABLE ${quoteIdent(database)}.${quoteIdent(table)}`);
+    const ddl = rows[0]?.['Create Table'] ?? rows[0]?.['Create View'];
+    if (ddl === undefined) throw new DeepDiveError(`Table ${database}.${table} was not found`, 'NOT_FOUND');
+    return str(ddl);
+  }
+
+  async locateTable(table: string, column?: string): Promise<TableLocation[]> {
+    if (column === undefined) {
+      const rows = await this.meta('SELECT TABLE_SCHEMA AS db FROM information_schema.TABLES WHERE TABLE_NAME = ? ORDER BY TABLE_SCHEMA', [table]);
+      return rows.map((r) => ({ database: str(r.db) }));
+    }
+    const rows = await this.meta(
+      `SELECT t.TABLE_SCHEMA AS db, EXISTS(SELECT 1 FROM information_schema.COLUMNS c
+         WHERE c.TABLE_SCHEMA = t.TABLE_SCHEMA AND c.TABLE_NAME = t.TABLE_NAME AND c.COLUMN_NAME = ?) AS has_col
+       FROM information_schema.TABLES t WHERE t.TABLE_NAME = ? ORDER BY t.TABLE_SCHEMA`,
+      [column, table],
+    );
+    return rows.map((r) => ({ database: str(r.db), hasColumn: Number(r.has_col) === 1 }));
   }
 
   private columnRows(rows: Row[]): ColumnInfo[] {

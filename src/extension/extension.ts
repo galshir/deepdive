@@ -5,8 +5,9 @@ import { MysqlDriver } from '../core/drivers/mysqlDriver';
 import { MessageRouter, type HostBridge } from '../core/router';
 import { ConnectionManager } from '../core/services/connectionManager';
 import { MetadataService } from '../core/services/metadataService';
+import { QueryLibrary } from '../core/services/queryLibrary';
 import { toUiSettings } from '../core/settings';
-import { GlobalStateConnectionStore, readSettings, VscodeSecretStore } from './adapters';
+import { GlobalStateConnectionStore, MementoKeyValueStore, readSettings, VscodeSecretStore } from './adapters';
 import { ConnectionItem, ConnectionsTreeProvider } from './connectionsTree';
 import { WorkspacePanel } from './workspacePanel';
 
@@ -33,6 +34,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const choice = await vscode.window.showWarningMessage(title, { modal: true, detail }, confirmLabel);
       return choice === confirmLabel;
     },
+    confirmTyped: async ({ title, prompt, expected }) => {
+      const value = await vscode.window.showInputBox({
+        title,
+        prompt,
+        ignoreFocusOut: true,
+        validateInput: (v) => (v === expected ? undefined : `Type ${expected} to confirm, or press Escape to cancel`),
+      });
+      return value === expected;
+    },
     copyText: async (text) => {
       await vscode.env.clipboard.writeText(text);
     },
@@ -42,7 +52,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     output: (line) => output.appendLine(`${new Date().toISOString()} ${line}`),
   };
-  const router = new MessageRouter(connections, metadata, bridge);
+  const router = new MessageRouter(connections, metadata, bridge, new QueryLibrary(new MementoKeyValueStore(context.globalState)));
 
   const tree = new ConnectionsTreeProvider(connections);
   const openWorkspace = (connectionId?: string) => {

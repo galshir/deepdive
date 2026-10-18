@@ -1,6 +1,6 @@
 import initSqlJs from 'sql.js';
 import type { Database, SqlValue } from 'sql.js';
-import type { CellValue, ColumnInfo, DatabaseInfo, DatabaseSchema, DemoDataset, IndexInfo, QueryResult, TableDetails, TableInfo } from '../../shared/model';
+import type { CellValue, ColumnInfo, DatabaseInfo, DatabaseSchema, DemoDataset, IndexInfo, QueryResult, TableDetails, TableInfo, TableLocation } from '../../shared/model';
 import { DeepDiveError } from '../errors';
 import { classifyStatement } from '../sql/classify';
 import type { Statement } from '../sql/edits';
@@ -95,6 +95,28 @@ export class DemoDriver implements DbDriver {
       engine: 'SQLite',
       rowEstimate: Number(this.all(`SELECT COUNT(*) AS n FROM ${q}.${quoteIdent(String(r.name))}`)[0]?.n ?? 0),
     }));
+  }
+
+  async showCreateTable(database: string, table: string): Promise<string> {
+    this.assertDatabase(database);
+    const row = this.all(`SELECT sql FROM ${quoteIdent(database)}.sqlite_master WHERE type IN ('table','view') AND name = ?`, [table])[0];
+    if (!row) throw new DeepDiveError(`Table ${database}.${table} was not found`, 'NOT_FOUND');
+    return String(row.sql);
+  }
+
+  async locateTable(table: string, column?: string): Promise<TableLocation[]> {
+    const out: TableLocation[] = [];
+    for (const database of this.databases) {
+      const q = quoteIdent(database);
+      if (this.all(`SELECT 1 FROM ${q}.sqlite_master WHERE type IN ('table','view') AND name = ?`, [table]).length === 0) continue;
+      if (column === undefined) {
+        out.push({ database });
+        continue;
+      }
+      const hasColumn = this.all(`SELECT 1 FROM pragma_table_info(?, ?) WHERE name = ?`, [table, database, column]).length > 0;
+      out.push({ database, hasColumn });
+    }
+    return out;
   }
 
   private loadColumns(database: string, table?: string): ColumnInfo[] {

@@ -9,6 +9,8 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 export interface SqlEditorHandle {
   /** Selected text, or the whole document when nothing is selected. */
   getRunnableText(): string;
+  /** Replaces the selection (or inserts at the cursor) with `text`, as one undoable change. */
+  insertText(text: string): void;
   focus(): void;
 }
 
@@ -16,6 +18,8 @@ interface Props {
   value: string;
   onChange: (value: string) => void;
   onRun?: () => void;
+  /** Ctrl/Cmd+Shift+S. */
+  onSave?: () => void;
   schema?: Record<string, string[]>;
   defaultTable?: string;
   readOnly?: boolean;
@@ -64,6 +68,12 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(p
       const sel = v.state.selection.main;
       return sel.empty ? v.state.doc.toString() : v.state.sliceDoc(sel.from, sel.to);
     },
+    insertText(text: string) {
+      const v = view.current;
+      if (!v) return;
+      v.dispatch(v.state.replaceSelection(text));
+      v.focus();
+    },
     focus() {
       view.current?.focus();
     },
@@ -77,6 +87,14 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(p
           key: 'Mod-Enter',
           run: () => {
             latest.current.onRun?.();
+            return true;
+          },
+        },
+        {
+          key: 'Mod-Shift-s',
+          run: () => {
+            if (!latest.current.onSave) return false;
+            latest.current.onSave();
             return true;
           },
         },
