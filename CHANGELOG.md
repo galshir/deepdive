@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
 
 - Schema compare: a new *Compare* tab that compares two databases (same or different servers, e.g. QA vs Staging) and reports missing and differing tables, columns, indexes and foreign keys, with options to ignore column order, comments, MySQL version differences and letter case.
 - Server-level compare: match databases of two connections by name, compare every pair, and list databases that exist on one side only.
