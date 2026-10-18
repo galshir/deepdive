@@ -52,6 +52,17 @@ describe.skipIf(!enabled)('real MySQL', () => {
       CREATE TABLE dd_t1.users (id INT PRIMARY KEY, name VARCHAR(20));
       CREATE TABLE dd_t2.users (id INT PRIMARY KEY, name VARCHAR(20), is_active TINYINT);
       INSERT INTO dd_t1.users VALUES (1, 'a'), (2, 'b'); INSERT INTO dd_t2.users VALUES (1, 'c', 0);
+      DROP DATABASE IF EXISTS dd_cmp_qa; DROP DATABASE IF EXISTS dd_cmp_stg;
+      CREATE DATABASE dd_cmp_qa; CREATE DATABASE dd_cmp_stg;
+      CREATE TABLE dd_cmp_qa.teams (id INT PRIMARY KEY AUTO_INCREMENT, name VARCHAR(50) NOT NULL);
+      CREATE TABLE dd_cmp_qa.users (id INT PRIMARY KEY AUTO_INCREMENT, email VARCHAR(255) NOT NULL, team_id INT NULL,
+        is_active TINYINT(1) NOT NULL DEFAULT 1, nick VARCHAR(20) DEFAULT 'n/a',
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY ux_email (email), KEY ix_team (team_id), CONSTRAINT fk_users_team FOREIGN KEY (team_id) REFERENCES teams (id) ON DELETE SET NULL);
+      CREATE TABLE dd_cmp_qa.audit (id BIGINT PRIMARY KEY, user_id INT NOT NULL, CONSTRAINT fk_audit_user FOREIGN KEY (user_id) REFERENCES users (id));
+      CREATE TABLE dd_cmp_stg.users (id INT PRIMARY KEY AUTO_INCREMENT, email VARCHAR(100) NOT NULL, team_id INT NULL, legacy INT, KEY ix_email (email));
+      CREATE TABLE dd_cmp_stg.junk (id INT);
+      INSERT INTO dd_cmp_stg.users (email, team_id) VALUES ('x@y.z', NULL);
     `);
     const rows = Array.from({ length: 120 }, (_, i) => `('user${i}@x.io', '${i % 3 === 0 ? 'inactive' : 'active'}', ${i === 5 ? "'50% off_deal'" : 'NULL'})`).join(',');
     await admin.query(`INSERT INTO dd_shop.customers (email, status, note) VALUES ${rows}`);
@@ -63,7 +74,7 @@ describe.skipIf(!enabled)('real MySQL', () => {
   afterAll(async () => {
     await driver?.close();
     await admin?.query(
-      'DROP DATABASE IF EXISTS dd_shop; DROP DATABASE IF EXISTS dd_nofk; DROP DATABASE IF EXISTS dd_empty; DROP DATABASE IF EXISTS dd_t1; DROP DATABASE IF EXISTS dd_t2; DROP DATABASE IF EXISTS dd_t3;',
+      'DROP DATABASE IF EXISTS dd_shop; DROP DATABASE IF EXISTS dd_nofk; DROP DATABASE IF EXISTS dd_empty; DROP DATABASE IF EXISTS dd_t1; DROP DATABASE IF EXISTS dd_t2; DROP DATABASE IF EXISTS dd_t3; DROP DATABASE IF EXISTS dd_cmp_qa; DROP DATABASE IF EXISTS dd_cmp_stg;',
     );
     await admin?.end();
   });
@@ -217,7 +228,7 @@ describe.skipIf(!enabled)('real MySQL', () => {
 
   it('locates a table and column across databases', async () => {
     // System schemas can match too (performance_schema has a users table); the UI hides them by default.
-    const ours = (l: TableLocation[]) => l.filter((x) => x.database.startsWith('dd_'));
+    const ours = (l: TableLocation[]) => l.filter((x) => x.database.startsWith('dd_t'));
     expect(ours(await driver.locateTable('users'))).toEqual([{ database: 'dd_t1' }, { database: 'dd_t2' }]);
     expect(ours(await driver.locateTable('users', 'is_active'))).toEqual([
       { database: 'dd_t1', hasColumn: false },
@@ -248,11 +259,51 @@ describe.skipIf(!enabled)('real MySQL', () => {
       ['ER_NO_SUCH_TABLE', "Table '<db>.users' doesn't exist", ['dd_t3']],
     ]);
     // The change landed in the database it was meant for, and only there.
-    const [rows] = await admin.query("SELECT TABLE_SCHEMA AS db FROM information_schema.COLUMNS WHERE TABLE_NAME = 'users' AND COLUMN_NAME = 'is_active' ORDER BY 1");
+    const [rows] = await admin.query("SELECT TABLE_SCHEMA AS db FROM information_schema.COLUMNS WHERE TABLE_NAME = 'users' AND COLUMN_NAME = 'is_active' AND TABLE_SCHEMA LIKE 'dd\\_t%' ORDER BY 1");
     expect((rows as { db: string }[]).map((r) => r.db)).toEqual(['dd_t1', 'dd_t2']);
     const [t1] = await admin.query('SELECT is_active FROM dd_t1.users');
     expect((t1 as { is_active: number }[]).every((r) => r.is_active === 1)).toBe(true);
     await h.call({ type: 'disconnect', connectionId: s.config.id });
+  });
+
+  it('compares two schemas, generates a sync script and makes them identical', async () => {
+    const h = await createHarness({ mysql: (c, pw) => new MysqlDriver(c, pw, { poolSize: 2 }) });
+    const s = await h.call({ type: 'saveConnection', config: mysqlInput({ host, port, user, readOnly: false }), password });
+    const connectionId = s.config.id;
+    await h.call({ type: 'connect', connectionId });
+    const source = { connectionId, database: 'dd_cmp_qa' };
+    const target = { connectionId, database: 'dd_cmp_stg' };
+    const options = { ignoreColumnOrder: true, ignoreComments: true, normalizeTypes: false, ignoreCase: false };
+    const before = await h.call({ type: 'compareSchemas', source, target, options });
+    expect(before.summary.tables).toEqual({ same: 0, only_source: 2, only_target: 1, changed: 1 });
+    const users = before.tables.find((t) => t.name === 'users')!;
+    expect(users.columns.filter((c) => c.status !== 'same').map((c) => `${c.name}:${c.status}`)).toEqual([
+      'email:changed',
+      'is_active:only_source',
+      'nick:only_source',
+      'created_at:only_source',
+      'legacy:only_target',
+    ]);
+
+    const sync = await h.call({ type: 'generateSyncScript', source, target, options, includeDrops: true });
+    expect(sync.warnings).toEqual([]);
+    expect(sync.statements[0]).toBe('DROP TABLE `junk`');
+    expect(sync.statements.slice(1).map((x) => x.split('\n')[0])).toEqual([
+      'CREATE TABLE `audit` (',
+      'CREATE TABLE `teams` (',
+      'ALTER TABLE `users`',
+      'ALTER TABLE `users` ADD CONSTRAINT `fk_users_team` FOREIGN KEY (`team_id`) REFERENCES `teams` (`id`) ON DELETE SET NULL ON UPDATE NO ACTION',
+    ]);
+    const run = await h.call({ type: 'runSql', connectionId, queryId: 'sync', sql: sync.statements.join(';\n'), database: 'dd_cmp_stg' });
+    expect(run.statements.filter((st) => st.error)).toEqual([]);
+
+    const after = await h.call({ type: 'compareSchemas', source, target, options });
+    expect(after.tables.filter((t) => t.status !== 'same')).toEqual([]);
+    expect(after.summary.tables.same).toBe(3);
+    // The existing row survived the migration and got the new defaults.
+    const [rows] = await admin.query('SELECT email, is_active, nick FROM dd_cmp_stg.users');
+    expect(rows).toEqual([{ email: 'x@y.z', is_active: 1, nick: 'n/a' }]);
+    await h.call({ type: 'disconnect', connectionId });
   });
 
   it('reports bad credentials and unreachable servers without leaking secrets', async () => {

@@ -35,6 +35,11 @@ DeepDive turns your MySQL servers into an interactive, explorable map. Instead o
   - **The report.** At the end, a report shows what succeeded, what failed and what was only **partially** applied, and why. Errors are grouped by server error code and message. You can drill into each database's statements and results, and read-only scripts also get a combined result grid.
   - **Retrying.** *Retry failed* re-runs the script on databases that weren't changed. *Retry partial* continues each partially applied database from its failed statement, without repeating the statements already committed.
   - **Safety.** The run has one confirmation listing the databases and statements. On `production` connections you must also type the number of databases. `USE` is rejected, and explicit `db.table` references raise a warning. Nothing is rolled back across databases, and MySQL commits DDL immediately.
+- **Schema compare.** The *Compare* tab compares two databases on the same server or on different ones, for example QA and Staging.
+  - **What is compared.** Tables and views, columns (type, nullability, default, extra, and optionally comments and position), indexes, and foreign keys. Every object is reported as missing in the target, missing in the source, or different, with field-by-field details. Indexes and foreign keys whose definition matches but whose name differs are paired rather than reported twice.
+  - **Server level.** *Servers* compares two connections: databases are matched by name, each pair is compared, and databases that exist on one side only are listed. Click a database to open its full comparison.
+  - **Options.** Column order and comments are ignored by default. MySQL version differences (`int(11)` vs `int`, default-value spelling) and letter case in names can be ignored too.
+  - **Sync script.** For MySQL connections, DeepDive generates the `CREATE` / `ALTER` statements that make the target match the source, for the tables you tick. Missing tables are created from the source's own `SHOW CREATE TABLE`, and foreign keys are added last. Drops of objects that exist only in the target are listed but skipped unless you enable *include drops*. You can open the script in the SQL editor, or run it on the target directly; it goes through the usual write confirmation, and the comparison refreshes afterwards.
 - **Global search.**
   - **Metadata search** finds databases, tables and columns across all connected servers, with filters by connection, database and type.
   - **Data search** needs an explicit scope (one connection, one database, chosen tables). Each table query is bounded by a LIMIT and the query timeout. Progress is shown live and the search can be cancelled.
@@ -197,6 +202,7 @@ For remote servers, set TLS to **Verify server certificate** and give a CA path.
 - Grid editing supports **update** and **delete** of rows addressed by primary key. **Inserting** rows, editing views, editing tables without a primary key, and BLOB editing aren't supported.
 - No SSH tunnelling yet; use a local port-forward. TLS supports CA, client cert and key files, but not key passphrases.
 - The SQL editor splits scripts on `;`. `DELIMITER` blocks (stored-procedure bodies) aren't supported, and session state such as variables or temporary tables doesn't persist between runs, because statements use pooled connections. `USE db` inside a script applies to the rest of that script.
+- Schema compare doesn't compare view definitions, triggers, routines, charsets or collations, and it can't generate statements for generated columns or index prefix lengths; the sync script says so when it skips something. Sync scripts are generated only between MySQL connections.
 - Multi-database runs target databases of one connection; running across several connections at once isn't supported. A run's retry state is kept in memory, so retrying isn't possible after the workspace panel or VS Code restarts.
 - In demo mode, unqualified table names don't follow the selected database (the demo engine is SQLite with attached databases), so multi-database runs there resolve to the same table each time. Real MySQL connections are not affected.
 - Paging uses `OFFSET`, which gets slower on very deep pages of huge tables. Keyset pagination isn't implemented yet.
@@ -210,9 +216,9 @@ For remote servers, set TLS to **Verify server certificate** and give a CA path.
 ```
 src/shared      model.ts, protocol.ts (zod schemas + typed request/response map)
 src/core        router.ts, errors.ts, settings.ts
-  sql/          identifiers, lexer, classify, literals, filters, tableQuery, queryModel, edits, search, references
+  sql/          identifiers, lexer, classify, literals, filters, tableQuery, queryModel, edits, search, references, schemaSync
   drivers/      driver.ts, mysqlDriver.ts, demoDriver.ts, demoData.ts, metadata.ts, serialize.ts
-  services/     connectionManager.ts, metadataService.ts, queryRegistry.ts, queryLibrary.ts, multiRun.ts
+  services/     connectionManager.ts, metadataService.ts, queryRegistry.ts, queryLibrary.ts, multiRun.ts, schemaDiff.ts
 src/extension   extension.ts, workspacePanel.ts, adapters.ts, connectionsTree.ts
 src/webview     App.tsx, store.ts, components/, views/, lib/
 src/dev         devServer.ts (browser harness, not shipped)

@@ -41,6 +41,8 @@ const PATHS = {
   sparkle: 'M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z',
   history: 'M3 12a9 9 0 103-6.7M3 4v5h5M12 7v5l3 3',
   logs: 'M4 6h16M4 10h16M4 14h10M4 18h7',
+  diff: 'M6 3v12M18 9v12M6 15a3 3 0 100 6 3 3 0 000-6zM18 3a3 3 0 100 6 3 3 0 000-6zM9 6h4l2 2M15 18h-4l-2-2',
+  swap: 'M7 4L3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7',
 } as const;
 
 export type IconName = keyof typeof PATHS;

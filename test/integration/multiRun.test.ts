@@ -37,6 +37,9 @@ class TenantDriver implements DbDriver {
   async locateTable() {
     return [];
   }
+  async showCreateTable(): Promise<never> {
+    throw new DeepDiveError('nope', 'NOT_FOUND');
+  }
   async query(sql: string, _p: unknown, options: QueryOptions): Promise<QueryResult> {
     this.calls.push({ sql, database: options.database });
     if (this.delayMs) {

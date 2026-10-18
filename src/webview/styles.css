@@ -2417,3 +2417,243 @@ progress {
   display: flex;
   flex-direction: column;
 }
+
+/* ---------- schema compare ---------- */
+.compare-view > .view-toolbar {
+  position: relative;
+}
+.cmp-side {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.cmp-side-label {
+  font-size: 0.85em;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.popover.compare-options {
+  left: auto;
+  right: 8px;
+  top: calc(100% + 2px);
+  width: 420px;
+  max-width: calc(100% - 16px);
+}
+.cmp-option {
+  align-items: flex-start;
+  padding: 5px 6px;
+}
+.cmp-option input {
+  margin-top: 2px;
+}
+.compare-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.cmp-schema {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.cmp-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
+}
+.cmp-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  flex-wrap: wrap;
+}
+.cmp-chips .chip:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.cmp-search {
+  margin-left: auto;
+  width: 180px;
+}
+.cmp-main {
+  flex: 1;
+  min-height: 0;
+  border-top: 1px solid var(--border);
+}
+.cmp-list {
+  height: 100%;
+  overflow: auto;
+  padding: 2px 0;
+}
+.cmp-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+}
+.cmp-row:hover {
+  background: var(--list-hover);
+}
+.cmp-row.selected {
+  background: var(--list-inactive);
+}
+.cmp-check-spacer {
+  width: 13px;
+  flex: none;
+}
+.cmp-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 2px;
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.cmp-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cmp-row-sub {
+  margin-left: auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-left: 8px;
+}
+.cmp-right {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.cmp-detail,
+.cmp-sync {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cmp-detail-head,
+.cmp-sync-head,
+.cmp-sync-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.notice.wide {
+  max-width: none;
+  margin: 0;
+}
+.cmp-section h3 {
+  font-size: 1em;
+  margin: 6px 0 4px;
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.cmp-objects {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92em;
+}
+.cmp-objects th {
+  text-align: left;
+  font-weight: 600;
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.cmp-objects td {
+  padding: 3px 6px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+  vertical-align: top;
+  word-break: break-word;
+}
+.cmp-objects tr.cmp-changes-row td {
+  padding-top: 0;
+  padding-left: 18px;
+}
+.cmp-table-changes,
+.cmp-changes-row td {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+.cmp-changes-row td {
+  display: table-cell;
+}
+.cmp-change {
+  display: inline-flex;
+  gap: 5px;
+  align-items: baseline;
+  margin-right: 12px;
+  font-size: 0.92em;
+}
+.cmp-change code {
+  font-family: var(--mono);
+  background: var(--panel-2);
+  padding: 0 4px;
+  border-radius: 3px;
+}
+.diff-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  font-size: 0.92em;
+}
+.ds-only_source {
+  color: var(--error);
+}
+.ds-only_target {
+  color: var(--fk);
+}
+.ds-changed {
+  color: var(--warn);
+}
+.ds-same {
+  color: var(--ok);
+}
+.ds-error {
+  color: var(--error);
+}
+.cmp-objects tr.ds-row-same td {
+  color: var(--muted);
+}
+.cmp-warnings ul {
+  margin: 0;
+  padding-left: 16px;
+}
+.cmp-script {
+  flex: 1;
+  min-height: 220px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.cmp-server-table {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 8px 8px;
+}
+.cmp-server-table tr.static {
+  cursor: default;
+}
