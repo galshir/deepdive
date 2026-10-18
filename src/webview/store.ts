@@ -10,7 +10,12 @@ import type {
   ForeignKeyInfo,
   LogEntry,
   MetadataHit,
+  MultiRunSnapshot,
+  MultiRunSummary,
+  MultiRunTarget,
   QueryModel,
+  QueryResult,
+  SavedQuery,
   SortSpec,
   SqlStatementResult,
   TableDetails,
@@ -87,6 +92,16 @@ export interface BuilderState {
   previewError?: string;
 }
 
+/** Client-side view of a run on multiple databases, kept up to date by host events. */
+export interface MultiRunView {
+  summary: MultiRunSummary;
+  /** Database names in the order they were requested. */
+  order: string[];
+  targets: Record<string, MultiRunTarget>;
+  /** Result sets of read statements, per database and statement index. */
+  results: Record<string, Record<number, QueryResult>>;
+}
+
 export interface SqlState {
   connectionId?: string;
   database?: string;
@@ -96,7 +111,15 @@ export interface SqlState {
   results: SqlStatementResult[];
   cancelled: boolean;
   activeResult: number;
-  history: string[];
+  /** The saved query the editor text was loaded from, if any. */
+  savedQueryId?: string;
+  mode: 'single' | 'multi';
+  /** Databases chosen for multi mode; only valid for `connectionId`. */
+  targets: { connectionId?: string; databases: string[] };
+  concurrency: number;
+  multiRun?: MultiRunView;
+  multiStarting: boolean;
+  multiError?: string;
 }
 
 export interface SearchState {
@@ -163,6 +186,9 @@ interface Store {
   logs: LogEntry[];
   toasts: Toast[];
   connectionForm: { open: boolean; editing?: ConnectionConfig };
+  savedQueries: SavedQuery[];
+  /** Bumped whenever the host reports a history change, so open history lists refetch. */
+  historyVersion: number;
 
   set: (patch: Partial<Store> | ((s: Store) => Partial<Store>)) => void;
   toast: (kind: Toast['kind'], message: string) => void;
@@ -188,6 +214,13 @@ interface Store {
   addLog: (entry: LogEntry) => void;
   openSqlWith: (sql: string, connectionId?: string, database?: string) => void;
   searchMetadata: (term: string) => void;
+  /**
+   * Shows an empty report for a run that is about to start, so progress events that overtake the
+   * runSqlMulti response are not lost. Returns the report it replaced, to restore if the run is refused.
+   */
+  beginMultiRun: (runId: string, connectionId: string, databases: string[]) => MultiRunView | undefined;
+  /** Merges a host snapshot without rolling back newer state already received through events. */
+  applyMultiRunSnapshot: (snapshot: MultiRunSnapshot) => void;
 }
 
 const FIXED_TABS: Tab[] = [
@@ -198,7 +231,17 @@ const FIXED_TABS: Tab[] = [
   { id: 'search', kind: 'search' },
 ];
 
-const DEFAULT_SETTINGS: UiSettings = { pageSize: 100, maxResultRows: 1000, queryTimeoutMs: 30000, maxTablesPerDatabase: 150, maxTablesPerDataSearch: 50 };
+const DEFAULT_SETTINGS: UiSettings = {
+  pageSize: 100,
+  maxResultRows: 1000,
+  queryTimeoutMs: 30000,
+  maxTablesPerDatabase: 150,
+  maxTablesPerDataSearch: 50,
+  poolSize: 4,
+  historyEnabled: true,
+  multiRunMaxDatabases: 500,
+  multiRunConcurrency: 1,
+};
 
 export const dataTabId = (connectionId: string, database: string, table: string) => `data:${key(connectionId, database, table)}`;
 
@@ -254,7 +297,7 @@ export const useStore = create<Store>((set, get) => {
     dataTabs: {},
     schemaFocus: { depth: 1, compact: false, hideIsolated: false },
     builder: { model: emptyModel(), running: false, notes: [] },
-    sql: { text: '', running: false, results: [], cancelled: false, activeResult: 0, history: [] },
+    sql: { text: '', running: false, results: [], cancelled: false, activeResult: 0, mode: 'single', targets: { databases: [] }, concurrency: 1, multiStarting: false },
     search: {
       mode: 'metadata',
       term: '',
@@ -265,6 +308,8 @@ export const useStore = create<Store>((set, get) => {
     logs: [],
     toasts: [],
     connectionForm: { open: false },
+    savedQueries: [],
+    historyVersion: 0,
 
     set: (patch) => set(patch as never),
 
@@ -390,10 +435,60 @@ export const useStore = create<Store>((set, get) => {
 
     openSqlWith: (sql, connectionId, database) => {
       set((s) => ({
-        sql: { ...s.sql, text: sql, connectionId: connectionId ?? s.sql.connectionId ?? s.activeConnectionId, database: database ?? s.sql.database },
+        sql: { ...s.sql, text: sql, savedQueryId: undefined, connectionId: connectionId ?? s.sql.connectionId ?? s.activeConnectionId, database: database ?? s.sql.database },
         activeTab: 'sql',
       }));
     },
+
+    beginMultiRun: (runId, connectionId, databases) => {
+      const previous = get().sql.multiRun;
+      const order = [...new Set(databases)];
+      set((s) => ({
+        sql: {
+          ...s.sql,
+          multiRun: {
+            summary: {
+              runId,
+              connectionId,
+              statements: [],
+              total: order.length,
+              attempt: 1,
+              running: true,
+              cancelled: false,
+              startedAt: Date.now(),
+              counts: { succeeded: 0, failed: 0, partial: 0, not_run: 0 },
+              errorGroups: [],
+            },
+            order,
+            targets: Object.fromEntries(order.map((database) => [database, { database, status: 'pending', statements: [], durationMs: 0, attempts: [] }])),
+            results: {},
+          },
+        },
+      }));
+      return previous;
+    },
+
+    applyMultiRunSnapshot: (snapshot) =>
+      set((s) => {
+        const prev = s.sql.multiRun?.summary.runId === snapshot.summary.runId ? s.sql.multiRun : undefined;
+        const newer = (t: MultiRunTarget) => {
+          const seen = prev?.targets[t.database];
+          return seen && (seen.attempts.length > t.attempts.length || (seen.attempts.length === t.attempts.length && seen.status === 'running' && t.status === 'pending')) ? seen : t;
+        };
+        // A finished event for this attempt may already have arrived; it is newer than the snapshot.
+        const keepSummary = prev && (prev.summary.attempt > snapshot.summary.attempt || (prev.summary.attempt === snapshot.summary.attempt && prev.summary.statements.length > 0 && !prev.summary.running));
+        return {
+          sql: {
+            ...s.sql,
+            multiRun: {
+              summary: keepSummary ? prev.summary : snapshot.summary,
+              order: snapshot.targets.map((t) => t.database),
+              targets: Object.fromEntries(snapshot.targets.map((t) => [t.database, newer(t)])),
+              results: prev?.results ?? {},
+            },
+          },
+        };
+      }),
   };
 });
 

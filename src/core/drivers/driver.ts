@@ -1,4 +1,4 @@
-import type { CellValue, DatabaseInfo, DatabaseSchema, MetadataHit, QueryResult, TableDetails, TableInfo } from '../../shared/model';
+import type { CellValue, DatabaseInfo, DatabaseSchema, MetadataHit, QueryResult, TableDetails, TableInfo, TableLocation } from '../../shared/model';
 import type { Dialect } from '../sql/identifiers';
 import type { Statement } from '../sql/edits';
 
@@ -26,6 +26,8 @@ export interface DbDriver {
   loadTableDetails(database: string, table: string): Promise<TableDetails>;
   loadDatabaseSchema(database: string): Promise<DatabaseSchema>;
   searchMetadata(term: string, limit: number): Promise<MetadataHitWithoutConnection[]>;
+  /** Databases containing a table with exactly this name; with `column`, also whether that column exists in it. */
+  locateTable(table: string, column?: string): Promise<TableLocation[]>;
   query(sql: string, params: readonly CellValue[], options: QueryOptions): Promise<QueryResult>;
   /**
    * Runs statements in one transaction. `verify` is called with each statement's affected row count and

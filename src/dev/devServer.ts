@@ -9,6 +9,7 @@ import { MysqlDriver } from '../core/drivers/mysqlDriver';
 import { MessageRouter } from '../core/router';
 import { ConnectionManager, type ConnectionStore, type SecretStore } from '../core/services/connectionManager';
 import { MetadataService } from '../core/services/metadataService';
+import { QueryLibrary } from '../core/services/queryLibrary';
 import { DEFAULT_SETTINGS } from '../core/settings';
 import type { ConnectionConfig } from '../shared/model';
 
@@ -21,6 +22,8 @@ const store: ConnectionStore = { load: () => configs, save: async (c) => void (c
 const secretMap = new Map<string, string>();
 const secrets: SecretStore = { get: async (k) => secretMap.get(k), store: async (k, v) => void secretMap.set(k, v), delete: async (k) => void secretMap.delete(k) };
 const clients = new Set<ServerResponse>();
+const kv = new Map<string, unknown>();
+const library = new QueryLibrary({ get: (k) => kv.get(k), set: async (k, v) => void kv.set(k, v) });
 
 const manager = new ConnectionManager(
   store,
@@ -39,10 +42,14 @@ const router = new MessageRouter(manager, metadata, {
     console.warn(`[confirm] ${title}\n${detail}\n→ ${autoConfirm ? 'auto-confirmed' : 'declined (set DEEPDIVE_DEV_CONFIRM=1 to auto-confirm)'}`);
     return autoConfirm;
   },
+  confirmTyped: async ({ title }) => {
+    console.warn(`[confirm typed] ${title} → ${autoConfirm ? 'auto-confirmed' : 'declined'}`);
+    return autoConfirm;
+  },
   copyText: async (text) => console.warn(`[clipboard] ${text.slice(0, 200)}`),
   openSqlDocument: async (sql) => console.warn(`[open document]\n${sql}`),
   output: (line) => console.warn(line),
-});
+}, library);
 
 const shim = `
 window.acquireVsCodeApi = () => ({

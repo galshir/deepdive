@@ -23,7 +23,18 @@ DeepDive turns your MySQL servers into an interactive, explorable map. Instead o
   - Copy a cell range, rows, a page as TSV, or JSON.
 - **Safe editing.** Off by default and only offered for tables with a primary key on connections that aren't read-only. Changes stay local until you click **Save**. You then confirm the exact statements in a VS Code modal, and they run in one transaction. If any statement doesn't affect exactly one row, everything is rolled back.
 - **Visual query builder.** Add tables, tick columns, and drag between column dots to create INNER/LEFT/RIGHT joins. Joins suggested from foreign keys are one click away, but none are ever added automatically. You can also set aggregates, aliases, AND/OR filters, ORDER BY, GROUP BY (added automatically when needed), DISTINCT and LIMIT. The SQL preview is compiled and validated by the extension host. *Edit as SQL* sends the query to the SQL editor and keeps the visual model.
-- **SQL editor.** CodeMirror with MySQL highlighting and autocomplete for the current database's tables and columns. It runs the selection or the whole script (Cmd/Ctrl+Enter), shows results per statement, and has history, cancellation, and *Open in VS Code*. You can also send SQL from any `.sql` file (or its selection) to this editor with **DeepDive: Open SQL in DeepDive Editor**.
+- **SQL editor.** CodeMirror with MySQL highlighting and autocomplete for the current database's tables and columns. It runs the selection or the whole script (Cmd/Ctrl+Enter), shows results per statement, and has cancellation and *Open in VS Code*. You can also send SQL from any `.sql` file (or its selection) to this editor with **DeepDive: Open SQL in DeepDive Editor**.
+- **Saved queries and history.**
+  - **Save** (Cmd/Ctrl+Shift+S) stores the editor's SQL under a name, with an optional description and tags. It can also remember the connection and default database.
+  - The **Queries** button lists saved queries and the run history, with search and a "this connection only" filter. Click an entry to load it, Alt+click to insert it at the cursor, or run a saved query directly.
+  - History is kept across sessions and records each run's connection, database, outcome, duration and row count. Identical consecutive runs are folded into one entry.
+  - Both live in VS Code's extension storage, not in your workspace. Turn history off with `deepdive.history.enabled` if your SQL contains sensitive literals.
+- **Run on multiple databases.** Switch the SQL editor to *Multiple databases* to run one script on many databases of a connection, for example an `ALTER TABLE` on every tenant database.
+  - **Choosing databases.** Filter by name pattern (`tenant_*`) and by "contains table X". You can add "column Y missing" to target only the databases a migration hasn't reached yet.
+  - **How it runs.** Each database runs the script on its own, as its default database. A database that fails stops at its first failing statement and is **skipped**, and the run continues with the next one.
+  - **The report.** At the end, a report shows what succeeded, what failed and what was only **partially** applied, and why. Errors are grouped by server error code and message. You can drill into each database's statements and results, and read-only scripts also get a combined result grid.
+  - **Retrying.** *Retry failed* re-runs the script on databases that weren't changed. *Retry partial* continues each partially applied database from its failed statement, without repeating the statements already committed.
+  - **Safety.** The run has one confirmation listing the databases and statements. On `production` connections you must also type the number of databases. `USE` is rejected, and explicit `db.table` references raise a warning. Nothing is rolled back across databases, and MySQL commits DDL immediately.
 - **Global search.**
   - **Metadata search** finds databases, tables and columns across all connected servers, with filters by connection, database and type.
   - **Data search** needs an explicit scope (one connection, one database, chosen tables). Each table query is bounded by a LIMIT and the query timeout. Progress is shown live and the search can be cancelled.
@@ -108,6 +119,10 @@ The VSIX contains only `dist/`, `media/`, `README.md`, `CHANGELOG.md`, `LICENSE`
 | `deepdive.poolSize` | 4 | Pool size per connected server. |
 | `deepdive.graph.maxTablesPerDatabase` | 150 | Table nodes drawn per database before a "+N more" node. |
 | `deepdive.search.maxTablesPerDataSearch` | 50 | Upper bound on tables in one data search. |
+| `deepdive.history.enabled` | true | Keep a persistent history of SQL editor runs. |
+| `deepdive.history.maxEntries` | 500 | History entries kept; the oldest are dropped first. |
+| `deepdive.multiRun.maxDatabases` | 500 | Upper bound on databases in one multi-database run. |
+| `deepdive.multiRun.concurrency` | 1 | Databases processed in parallel by default (capped at `poolSize`). Keep 1 for schema changes on large tables. |
 
 A sample connection (entered in the *New connection* form; the password goes to SecretStorage):
 
@@ -182,6 +197,8 @@ For remote servers, set TLS to **Verify server certificate** and give a CA path.
 - Grid editing supports **update** and **delete** of rows addressed by primary key. **Inserting** rows, editing views, editing tables without a primary key, and BLOB editing aren't supported.
 - No SSH tunnelling yet; use a local port-forward. TLS supports CA, client cert and key files, but not key passphrases.
 - The SQL editor splits scripts on `;`. `DELIMITER` blocks (stored-procedure bodies) aren't supported, and session state such as variables or temporary tables doesn't persist between runs, because statements use pooled connections. `USE db` inside a script applies to the rest of that script.
+- Multi-database runs target databases of one connection; running across several connections at once isn't supported. A run's retry state is kept in memory, so retrying isn't possible after the workspace panel or VS Code restarts.
+- In demo mode, unqualified table names don't follow the selected database (the demo engine is SQLite with attached databases), so multi-database runs there resolve to the same table each time. Real MySQL connections are not affected.
 - Paging uses `OFFSET`, which gets slower on very deep pages of huge tables. Keyset pagination isn't implemented yet.
 - Metadata queries use a fixed 60 s timeout and can't be cancelled from the UI.
 - Canvas node positions are kept for the session only, not persisted between VS Code restarts.
@@ -193,9 +210,9 @@ For remote servers, set TLS to **Verify server certificate** and give a CA path.
 ```
 src/shared      model.ts, protocol.ts (zod schemas + typed request/response map)
 src/core        router.ts, errors.ts, settings.ts
-  sql/          identifiers, lexer, classify, literals, filters, tableQuery, queryModel, edits, search
+  sql/          identifiers, lexer, classify, literals, filters, tableQuery, queryModel, edits, search, references
   drivers/      driver.ts, mysqlDriver.ts, demoDriver.ts, demoData.ts, metadata.ts, serialize.ts
-  services/     connectionManager.ts, metadataService.ts, queryRegistry.ts
+  services/     connectionManager.ts, metadataService.ts, queryRegistry.ts, queryLibrary.ts, multiRun.ts
 src/extension   extension.ts, workspacePanel.ts, adapters.ts, connectionsTree.ts
 src/webview     App.tsx, store.ts, components/, views/, lib/
 src/dev         devServer.ts (browser harness, not shipped)

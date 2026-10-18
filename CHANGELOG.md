@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0
+
+- Saved queries: name, describe and tag SQL from the editor (Cmd/Ctrl+Shift+S), optionally tied to a connection and database; load, insert or run them from the new **Queries** panel.
+- Persistent query history with outcome, duration and row count, searchable and filterable per connection (`deepdive.history.*` settings).
+- Run on multiple databases: run one script on many databases of a connection, pick targets by name pattern or table/column presence, skip failing databases, and get a report with grouped errors, partial-apply detection, retry of failed databases and continue-from-failed-statement for partial ones (`deepdive.multiRun.*` settings).
+- SQL editor errors now carry the server error code (e.g. `ER_DUP_FIELDNAME`).
+
 ## 0.1.0 — initial MVP
 
 - Multiple saved MySQL connections (passwords in VS Code SecretStorage), connect/disconnect, TLS, read-only mode.

@@ -3,6 +3,7 @@ import type { DbDriver } from '../../src/core/drivers/driver';
 import { MessageRouter, type HostBridge } from '../../src/core/router';
 import { ConnectionManager, type ConnectionStore, type DriverFactory, type SecretStore } from '../../src/core/services/connectionManager';
 import { MetadataService } from '../../src/core/services/metadataService';
+import { QueryLibrary, type KeyValueStore } from '../../src/core/services/queryLibrary';
 import { DEFAULT_SETTINGS, type Settings } from '../../src/core/settings';
 import type { ConnectionConfig } from '../../src/shared/model';
 import type { HostEvent, HostToWebview, Request, ResponseMap } from '../../src/shared/protocol';
@@ -31,6 +32,16 @@ export class MemorySecrets implements SecretStore {
   }
 }
 
+export class MemoryKeyValue implements KeyValueStore {
+  readonly map = new Map<string, unknown>();
+  get(k: string) {
+    return structuredClone(this.map.get(k));
+  }
+  async set(k: string, v: unknown) {
+    this.map.set(k, structuredClone(v));
+  }
+}
+
 export interface Harness {
   router: MessageRouter;
   manager: ConnectionManager;
@@ -38,6 +49,10 @@ export interface Harness {
   events: HostEvent[];
   confirms: string[];
   setConfirm(answer: boolean): void;
+  /** Answer for the typed (second-step) confirmation; defaults to true. */
+  setTypedConfirm(answer: boolean): void;
+  kv: MemoryKeyValue;
+  library: QueryLibrary;
   settings: Settings;
   secrets: MemorySecrets;
   store: MemoryStore;
@@ -45,7 +60,9 @@ export interface Harness {
   raw(payload: unknown): Promise<HostToWebview | null>;
 }
 
-export async function createHarness(opts: { factory?: DriverFactory; settings?: Partial<Settings>; mysql?: (c: ConnectionConfig, pw?: string) => MysqlDriver } = {}): Promise<Harness> {
+export async function createHarness(
+  opts: { factory?: DriverFactory; settings?: Partial<Settings>; mysql?: (c: ConnectionConfig, pw?: string) => MysqlDriver; kv?: MemoryKeyValue } = {},
+): Promise<Harness> {
   const store = new MemoryStore();
   const secrets = new MemorySecrets();
   const settings: Settings = { ...DEFAULT_SETTINGS, ...opts.settings };
@@ -57,6 +74,9 @@ export async function createHarness(opts: { factory?: DriverFactory; settings?: 
   const events: HostEvent[] = [];
   const confirms: string[] = [];
   let answer = true;
+  let typedAnswer = true;
+  const kv = opts.kv ?? new MemoryKeyValue();
+  const library = new QueryLibrary(kv);
   const bridge: HostBridge = {
     settings: () => settings,
     emit: (e) => events.push(e),
@@ -64,11 +84,15 @@ export async function createHarness(opts: { factory?: DriverFactory; settings?: 
       confirms.push(title);
       return answer;
     },
+    confirmTyped: async ({ title }) => {
+      confirms.push(`typed: ${title}`);
+      return typedAnswer;
+    },
     copyText: async () => undefined,
     openSqlDocument: async () => undefined,
     output: () => undefined,
   };
-  const router = new MessageRouter(manager, metadata, bridge);
+  const router = new MessageRouter(manager, metadata, bridge, library);
   let seq = 1;
   const raw = (payload: unknown) => router.handle({ kind: 'request', id: seq++, payload });
   return {
@@ -81,6 +105,9 @@ export async function createHarness(opts: { factory?: DriverFactory; settings?: 
     secrets,
     store,
     setConfirm: (a) => (answer = a),
+    setTypedConfirm: (a) => (typedAnswer = a),
+    kv,
+    library,
     raw,
     async call(payload) {
       const res = await raw(payload);

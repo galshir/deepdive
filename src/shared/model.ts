@@ -261,6 +261,8 @@ export interface SqlStatementResult {
   sql: string;
   result?: QueryResult;
   error?: string;
+  /** Server error code (e.g. ER_DUP_FIELDNAME) or DeepDive error code (e.g. TIMEOUT). */
+  errorCode?: string;
 }
 
 export interface TablePage {
@@ -357,4 +359,120 @@ export interface UiSettings {
   queryTimeoutMs: number;
   maxTablesPerDatabase: number;
   maxTablesPerDataSearch: number;
+  poolSize: number;
+  historyEnabled: boolean;
+  multiRunMaxDatabases: number;
+  multiRunConcurrency: number;
+}
+
+// ---------- Saved queries & history ----------
+
+export interface SavedQuery {
+  id: string;
+  name: string;
+  description?: string;
+  tags: string[];
+  sql: string;
+  /** Connection and default database the query was saved for, if the user chose to remember them. */
+  connectionId?: string;
+  database?: string;
+  createdAt: number;
+  updatedAt: number;
+  lastRunAt?: number;
+  runCount: number;
+}
+
+export type SavedQueryInput = Pick<SavedQuery, 'name' | 'tags' | 'sql'> & Partial<Pick<SavedQuery, 'id' | 'description' | 'connectionId' | 'database'>>;
+
+export interface HistoryEntry {
+  id: string;
+  sql: string;
+  connectionId?: string;
+  database?: string;
+  /** Set for runs on multiple databases: how many databases were targeted. */
+  databaseCount?: number;
+  executedAt: number;
+  status: 'ok' | 'error' | 'cancelled';
+  durationMs: number;
+  rowCount?: number;
+  error?: string;
+  /** Consecutive identical runs are folded into one entry. */
+  runs: number;
+}
+
+// ---------- Running on multiple databases ----------
+
+export type MultiRunStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'partial' | 'not_run';
+export type MultiRunFinalStatus = Exclude<MultiRunStatus, 'pending' | 'running'>;
+
+export interface MultiRunStatement {
+  status: 'ok' | 'error' | 'not_run';
+  /** Attempt that produced this status; statements applied earlier keep their original attempt. */
+  attempt?: number;
+  affectedRows?: number;
+  rowCount?: number;
+  durationMs?: number;
+  error?: string;
+  errorCode?: string;
+}
+
+export interface MultiRunTarget {
+  database: string;
+  status: MultiRunStatus;
+  /** One entry per statement of the script, in order. */
+  statements: MultiRunStatement[];
+  failedStatementIndex?: number;
+  /** Duration of the latest attempt on this database. */
+  durationMs: number;
+  attempts: { attempt: number; status: MultiRunFinalStatus; failedStatementIndex?: number }[];
+}
+
+export interface MultiRunErrorGroup {
+  code: string;
+  /** The error message with the database name replaced by <db>. */
+  message: string;
+  databases: string[];
+}
+
+export interface MultiRunSummary {
+  runId: string;
+  connectionId: string;
+  statements: string[];
+  total: number;
+  attempt: number;
+  running: boolean;
+  cancelled: boolean;
+  startedAt: number;
+  finishedAt?: number;
+  counts: Record<MultiRunFinalStatus, number>;
+  errorGroups: MultiRunErrorGroup[];
+}
+
+export interface MultiRunSnapshot {
+  summary: MultiRunSummary;
+  targets: MultiRunTarget[];
+}
+
+export interface MultiRunProgress {
+  runId: string;
+  attempt: number;
+  done: number;
+  total: number;
+  target: MultiRunTarget;
+  /** Result sets of read statements from this attempt, keyed by statement index. */
+  results?: Record<number, QueryResult>;
+}
+
+export interface MultiRunPreview {
+  statements: { sql: string; readOnly: boolean; keyword: string }[];
+  writes: number;
+  /** Blocking problems: the run is refused while any exist. */
+  problems: string[];
+  warnings: string[];
+}
+
+export interface TableLocation {
+  database: string;
+  /** Only set when a column was asked for. */
+  hasColumn?: boolean;
 }

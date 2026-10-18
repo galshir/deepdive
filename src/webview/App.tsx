@@ -68,13 +68,39 @@ function useHostEvents() {
           });
           break;
         }
+        case 'savedQueriesChanged':
+          st().set({ savedQueries: e.savedQueries });
+          break;
+        case 'historyChanged':
+          st().set((s) => ({ historyVersion: s.historyVersion + 1 }));
+          break;
+        case 'multiRunProgress': {
+          const p = e.progress;
+          st().updateSql((s) => {
+            const run = s.multiRun;
+            if (!run || run.summary.runId !== p.runId || p.attempt < run.summary.attempt) return {};
+            const db = p.target.database;
+            return {
+              multiRun: {
+                ...run,
+                summary: run.summary.attempt < p.attempt ? { ...run.summary, attempt: p.attempt, running: true } : run.summary,
+                targets: { ...run.targets, [db]: p.target },
+                results: p.results ? { ...run.results, [db]: { ...run.results[db], ...p.results } } : run.results,
+              },
+            };
+          });
+          break;
+        }
+        case 'multiRunFinished':
+          st().updateSql((s) => (s.multiRun?.summary.runId === e.summary.runId && e.summary.attempt >= s.multiRun.summary.attempt ? { multiRun: { ...s.multiRun, summary: e.summary } } : {}));
+          break;
         default:
           break;
       }
     });
     rpc({ type: 'init' })
       .then((r) => {
-        st().set({ settings: r.settings, ready: true });
+        st().set((s) => ({ settings: r.settings, ready: true, savedQueries: r.savedQueries, sql: { ...s.sql, concurrency: r.settings.multiRunConcurrency } }));
         st().setConnections(r.connections);
         const active = r.connections.find((c) => c.status === 'connected') ?? r.connections[0];
         if (active) st().setActiveConnection(active.config.id);

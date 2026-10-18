@@ -2,7 +2,7 @@
   "name": "deepdive-mysql",
   "displayName": "DeepDive — Visual MySQL Explorer",
   "description": "Dive into your MySQL servers visually: bubble canvas explorer, schema relationship graphs, a filterable data browser, a visual query builder and a SQL editor — across multiple connections.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "barmelamed",
   "license": "MIT",
   "repository": {
@@ -216,6 +216,32 @@
           "default": 50,
           "minimum": 1,
           "description": "Maximum number of tables a single data search may scan."
+        },
+        "deepdive.history.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Keep a history of SQL editor runs across sessions. The SQL text is stored unencrypted in VS Code's extension storage, so turn this off if your queries contain sensitive literals."
+        },
+        "deepdive.history.maxEntries": {
+          "type": "number",
+          "default": 500,
+          "minimum": 10,
+          "maximum": 5000,
+          "description": "Maximum number of query history entries kept. The oldest entries are dropped first."
+        },
+        "deepdive.multiRun.maxDatabases": {
+          "type": "number",
+          "default": 500,
+          "minimum": 1,
+          "maximum": 5000,
+          "description": "Maximum number of databases a single 'run on multiple databases' may target."
+        },
+        "deepdive.multiRun.concurrency": {
+          "type": "number",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 32,
+          "description": "Default number of databases processed in parallel when running on multiple databases. Capped at deepdive.poolSize. Keep 1 for schema changes on large tables."
         }
       }
     }

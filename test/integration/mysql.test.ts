@@ -4,7 +4,7 @@
 import * as mysql from 'mysql2/promise';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { MysqlDriver } from '../../src/core/drivers/mysqlDriver';
-import type { ConnectionConfig } from '../../src/shared/model';
+import type { ConnectionConfig, TableLocation } from '../../src/shared/model';
 import { createHarness, type Harness, mysqlInput } from '../helpers/harness';
 
 const enabled = process.env.DEEPDIVE_MYSQL_TEST === '1';
@@ -47,6 +47,11 @@ describe.skipIf(!enabled)('real MySQL', () => {
       CREATE VIEW dd_shop.active_customers AS SELECT id, email FROM dd_shop.customers WHERE status = 'active';
       CREATE TABLE dd_nofk.events (id INT PRIMARY KEY, customer_id INT, kind VARCHAR(20));
       CREATE TABLE dd_nofk.\`odd\`\`name\` (\`we\`\`ird col\` INT);
+      DROP DATABASE IF EXISTS dd_t1; DROP DATABASE IF EXISTS dd_t2; DROP DATABASE IF EXISTS dd_t3;
+      CREATE DATABASE dd_t1; CREATE DATABASE dd_t2; CREATE DATABASE dd_t3;
+      CREATE TABLE dd_t1.users (id INT PRIMARY KEY, name VARCHAR(20));
+      CREATE TABLE dd_t2.users (id INT PRIMARY KEY, name VARCHAR(20), is_active TINYINT);
+      INSERT INTO dd_t1.users VALUES (1, 'a'), (2, 'b'); INSERT INTO dd_t2.users VALUES (1, 'c', 0);
     `);
     const rows = Array.from({ length: 120 }, (_, i) => `('user${i}@x.io', '${i % 3 === 0 ? 'inactive' : 'active'}', ${i === 5 ? "'50% off_deal'" : 'NULL'})`).join(',');
     await admin.query(`INSERT INTO dd_shop.customers (email, status, note) VALUES ${rows}`);
@@ -57,7 +62,9 @@ describe.skipIf(!enabled)('real MySQL', () => {
 
   afterAll(async () => {
     await driver?.close();
-    await admin?.query('DROP DATABASE IF EXISTS dd_shop; DROP DATABASE IF EXISTS dd_nofk; DROP DATABASE IF EXISTS dd_empty;');
+    await admin?.query(
+      'DROP DATABASE IF EXISTS dd_shop; DROP DATABASE IF EXISTS dd_nofk; DROP DATABASE IF EXISTS dd_empty; DROP DATABASE IF EXISTS dd_t1; DROP DATABASE IF EXISTS dd_t2; DROP DATABASE IF EXISTS dd_t3;',
+    );
     await admin?.end();
   });
 
@@ -206,6 +213,46 @@ describe.skipIf(!enabled)('real MySQL', () => {
     expect(b.rows[0]![0]).toBe('dd_nofk');
     await other.close();
     await expect(other.query('SELECT 1', [], opts)).rejects.toMatchObject({ code: 'NOT_CONNECTED' });
+  });
+
+  it('locates a table and column across databases', async () => {
+    // System schemas can match too (performance_schema has a users table); the UI hides them by default.
+    const ours = (l: TableLocation[]) => l.filter((x) => x.database.startsWith('dd_'));
+    expect(ours(await driver.locateTable('users'))).toEqual([{ database: 'dd_t1' }, { database: 'dd_t2' }]);
+    expect(ours(await driver.locateTable('users', 'is_active'))).toEqual([
+      { database: 'dd_t1', hasColumn: false },
+      { database: 'dd_t2', hasColumn: true },
+    ]);
+  });
+
+  it('runs a migration on several databases, skipping and grouping failures', async () => {
+    const h = await createHarness({ mysql: (c, pw) => new MysqlDriver(c, pw, { poolSize: 2 }) });
+    const s = await h.call({ type: 'saveConnection', config: mysqlInput({ host, port, user, readOnly: false }), password });
+    await h.call({ type: 'connect', connectionId: s.config.id });
+    await h.call({
+      type: 'runSqlMulti',
+      connectionId: s.config.id,
+      runId: 'mysql-run',
+      sql: 'ALTER TABLE users ADD COLUMN is_active TINYINT NOT NULL DEFAULT 1; UPDATE users SET is_active = 1',
+      databases: ['dd_t1', 'dd_t2', 'dd_t3'],
+      concurrency: 1,
+    });
+    let summary;
+    for (let i = 0; i < 200 && !summary; i++) {
+      summary = h.events.flatMap((e) => (e.type === 'multiRunFinished' ? [e.summary] : []))[0];
+      if (!summary) await new Promise((r) => setTimeout(r, 25));
+    }
+    expect(summary!.counts).toEqual({ succeeded: 1, failed: 2, partial: 0, not_run: 0 });
+    expect(summary!.errorGroups.map((g) => [g.code, g.message, g.databases])).toEqual([
+      ['ER_DUP_FIELDNAME', "Duplicate column name 'is_active'", ['dd_t2']],
+      ['ER_NO_SUCH_TABLE', "Table '<db>.users' doesn't exist", ['dd_t3']],
+    ]);
+    // The change landed in the database it was meant for, and only there.
+    const [rows] = await admin.query("SELECT TABLE_SCHEMA AS db FROM information_schema.COLUMNS WHERE TABLE_NAME = 'users' AND COLUMN_NAME = 'is_active' ORDER BY 1");
+    expect((rows as { db: string }[]).map((r) => r.db)).toEqual(['dd_t1', 'dd_t2']);
+    const [t1] = await admin.query('SELECT is_active FROM dd_t1.users');
+    expect((t1 as { is_active: number }[]).every((r) => r.is_active === 1)).toBe(true);
+    await h.call({ type: 'disconnect', connectionId: s.config.id });
   });
 
   it('reports bad credentials and unreachable servers without leaking secrets', async () => {

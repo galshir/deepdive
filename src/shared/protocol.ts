@@ -10,11 +10,18 @@ import type {
   EditResult,
   FilterGroup,
   FilterNode,
+  HistoryEntry,
   LogEntry,
   MetadataHit,
+  MultiRunPreview,
+  MultiRunProgress,
+  MultiRunSnapshot,
+  MultiRunSummary,
+  SavedQuery,
   SqlStatementResult,
   TableDetails,
   TableInfo,
+  TableLocation,
   TablePage,
   UiSettings,
 } from './model';
@@ -128,6 +135,20 @@ export const connectionInputSchema = z.object({
 });
 export type ConnectionInput = z.infer<typeof connectionInputSchema>;
 
+const MAX_SQL = 1_000_000;
+/** Upper bound for schema validation; the configured deepdive.multiRun.maxDatabases is enforced on the host. */
+const MAX_TARGET_DATABASES = 5000;
+
+export const savedQueryInputSchema = z.object({
+  id: id.optional(),
+  name: z.string().trim().min(1).max(120),
+  description: z.string().max(2000).optional(),
+  tags: z.array(z.string().trim().min(1).max(40)).max(10),
+  sql: z.string().min(1).max(MAX_SQL),
+  connectionId: id.optional(),
+  database: ident.optional(),
+});
+
 const rowEditSchema = z.object({
   key: z.record(ident, scalar),
   changes: z.record(ident, scalar),
@@ -167,9 +188,45 @@ export const requestSchema = z.discriminatedUnion('type', [
     type: z.literal('runSql'),
     connectionId: id,
     queryId: id,
-    sql: z.string().min(1).max(1_000_000),
+    sql: z.string().min(1).max(MAX_SQL),
+    database: ident.optional(),
+    /** Set when the script was loaded from a saved query, to update its run statistics. */
+    savedQueryId: id.optional(),
+  }),
+  z.object({ type: z.literal('listSavedQueries') }),
+  z.object({ type: z.literal('saveQuery'), query: savedQueryInputSchema }),
+  z.object({ type: z.literal('deleteSavedQuery'), id }),
+  z.object({
+    type: z.literal('listHistory'),
+    term: z.string().max(200).optional(),
+    connectionId: id.optional(),
+    limit: z.number().int().min(1).max(5000),
+  }),
+  z.object({ type: z.literal('deleteHistoryEntry'), id }),
+  z.object({ type: z.literal('clearHistory') }),
+  z.object({ type: z.literal('locateTable'), connectionId: id, table: ident, column: ident.optional() }),
+  z.object({
+    type: z.literal('previewMultiRun'),
+    connectionId: id,
+    sql: z.string().min(1).max(MAX_SQL),
+    databases: z.array(ident).min(1).max(MAX_TARGET_DATABASES),
+  }),
+  z.object({
+    type: z.literal('runSqlMulti'),
+    connectionId: id,
+    runId: id,
+    sql: z.string().min(1).max(MAX_SQL),
+    databases: z.array(ident).min(1).max(MAX_TARGET_DATABASES),
+    concurrency: z.number().int().min(1).max(32),
+  }),
+  z.object({
+    type: z.literal('retryMultiRun'),
+    runId: id,
+    /** failed: unchanged databases (failed or not run); partial: partially applied ones; database: one database. */
+    mode: z.enum(['failed', 'partial', 'database']),
     database: ident.optional(),
   }),
+  z.object({ type: z.literal('cancelMultiRun'), runId: id }),
   z.object({ type: z.literal('cancelQuery'), queryId: id }),
   z.object({
     type: z.literal('applyEdits'),
@@ -210,6 +267,7 @@ export type RequestOf<T extends RequestType> = Extract<Request, { type: T }>;
 export interface InitResult {
   connections: ConnectionSummary[];
   settings: UiSettings;
+  savedQueries: SavedQuery[];
 }
 
 /** Result type for every request. */
@@ -231,6 +289,17 @@ export interface ResponseMap {
   buildQuery: BuiltQuery;
   runQueryModel: { built: BuiltQuery; statement: SqlStatementResult };
   runSql: { statements: SqlStatementResult[]; cancelled: boolean };
+  listSavedQueries: SavedQuery[];
+  saveQuery: SavedQuery;
+  deleteSavedQuery: boolean;
+  listHistory: HistoryEntry[];
+  deleteHistoryEntry: boolean;
+  clearHistory: boolean;
+  locateTable: TableLocation[];
+  previewMultiRun: MultiRunPreview;
+  runSqlMulti: MultiRunSnapshot;
+  retryMultiRun: MultiRunSnapshot;
+  cancelMultiRun: boolean;
   cancelQuery: boolean;
   applyEdits: EditResult;
   searchMetadata: { hits: MetadataHit[]; limited: boolean; errors: string[] };
@@ -247,7 +316,11 @@ export type HostEvent =
   | { type: 'settingsChanged'; settings: UiSettings }
   | { type: 'openSql'; sql: string; connectionId?: string }
   | { type: 'focusConnection'; connectionId: string }
-  | { type: 'openConnectionForm' };
+  | { type: 'openConnectionForm' }
+  | { type: 'savedQueriesChanged'; savedQueries: SavedQuery[] }
+  | { type: 'historyChanged' }
+  | { type: 'multiRunProgress'; progress: MultiRunProgress }
+  | { type: 'multiRunFinished'; summary: MultiRunSummary };
 
 export interface ErrorPayload {
   message: string;
