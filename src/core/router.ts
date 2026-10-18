@@ -3,6 +3,8 @@ import type {
   ConnectionSummary,
   DataSearchProgress,
   DataSearchRequest,
+  DatabaseInfo,
+  DatabaseSchema,
   HistoryEntry,
   LogEntry,
   MetadataHit,
@@ -10,6 +12,11 @@ import type {
   MultiRunSnapshot,
   MultiRunTarget,
   QueryResult,
+  SchemaCompareOptions,
+  SchemaDiff,
+  SchemaRef,
+  ServerCompareProgress,
+  ServerCompareRow,
   SqlStatementResult,
   TableDetails,
 } from '../shared/model';
@@ -21,6 +28,7 @@ import type { ConnectionManager } from './services/connectionManager';
 import type { MetadataService } from './services/metadataService';
 import { finalStatus, newTarget, resumeIndex, snapshotTarget, summarize, type MultiRunState } from './services/multiRun';
 import type { QueryLibrary } from './services/queryLibrary';
+import { diffSchemas, schemaStatus, summarizeDiff } from './services/schemaDiff';
 import { QueryRegistry } from './services/queryRegistry';
 import type { Settings } from './settings';
 import { toUiSettings } from './settings';
@@ -31,6 +39,7 @@ import { splitStatements } from './sql/lexer';
 import { inlineParams } from './sql/literals';
 import { compileQueryModel } from './sql/queryModel';
 import { qualifiedDatabaseRefs } from './sql/references';
+import { buildSyncScript } from './sql/schemaSync';
 import { buildDataSearchQuery } from './sql/search';
 import { buildCountQuery, buildTableQuery } from './sql/tableQuery';
 
@@ -52,6 +61,8 @@ const PREVIEW_STATEMENTS = 8;
 const PREVIEW_DATABASES = 10;
 /** Finished multi-database runs kept in memory so they can be retried. */
 const MAX_KEPT_RUNS = 5;
+/** Databases compared at the same time in a server-level comparison. */
+const SERVER_COMPARE_CONCURRENCY = 2;
 
 const nameList = (names: readonly string[], max = 5) =>
   `${names.slice(0, max).map((n) => `"${n}"`).join(', ')}${names.length > max ? ` and ${names.length - max} more` : ''}`;
@@ -62,6 +73,7 @@ export class MessageRouter {
   readonly queries = new QueryRegistry();
   private readonly searches = new Map<string, AbortController>();
   private readonly multiRuns = new Map<string, MultiRunState>();
+  private readonly compares = new Map<string, AbortController>();
   private logSeq = 0;
   private readonly disposeListener: () => void;
 
@@ -79,6 +91,8 @@ export class MessageRouter {
     this.queries.cancelAll();
     for (const s of this.searches.values()) s.abort();
     this.searches.clear();
+    for (const c of this.compares.values()) c.abort();
+    this.compares.clear();
   }
 
   /** Validates and dispatches one raw message from the webview. Returns the response to post back. */
@@ -490,6 +504,50 @@ export class MessageRouter {
       return run ? this.queries.cancel(`${run.runId}#${run.attempt}`) : false;
     },
 
+    compareSchemas: async (req) => {
+      const { diff } = await this.compareSchemaPair(req.source, req.target, req.options, true);
+      const s = diff.summary;
+      this.log('info', `Compared ${this.safeName(req.source.connectionId)}/${req.source.database} with ${this.safeName(req.target.connectionId)}/${req.target.database}: ${s.tables.only_source} missing in target, ${s.tables.only_target} missing in source, ${s.tables.changed} different`);
+      return diff;
+    },
+
+    compareServers: async (req) => {
+      if (req.sourceConnectionId === req.targetConnectionId) throw validationError('Choose two different connections to compare');
+      if (this.compares.has(req.compareId)) throw validationError('This comparison is already running');
+      this.driver(req.sourceConnectionId);
+      this.driver(req.targetConnectionId);
+      const controller = new AbortController();
+      this.compares.set(req.compareId, controller);
+      // Deferred so the response reaches the webview before the first progress event.
+      setTimeout(() => void this.runServerCompare(req, controller).finally(() => this.compares.delete(req.compareId)), 0);
+      return { started: true };
+    },
+
+    cancelCompare: async (req) => {
+      const c = this.compares.get(req.compareId);
+      c?.abort();
+      return Boolean(c);
+    },
+
+    generateSyncScript: async (req) => {
+      for (const ref of [req.source, req.target]) {
+        if (this.driver(ref.connectionId).dialect !== 'mysql') throw validationError('Sync scripts can only be generated between MySQL connections, not demo connections.');
+      }
+      const { diff, source, target } = await this.compareSchemaPair(req.source, req.target, req.options, false);
+      const wanted = req.tables ? new Set(req.tables) : undefined;
+      const driver = this.driver(req.source.connectionId);
+      const createStatements = new Map<string, string>();
+      for (const t of diff.tables) {
+        if (t.status !== 'only_source' || t.type !== 'table' || (wanted && !wanted.has(t.name))) continue;
+        try {
+          createStatements.set(t.name, await driver.showCreateTable(req.source.database, t.name));
+        } catch (err) {
+          this.bridge.output(`Could not read the definition of ${req.source.database}.${t.name}: ${this.connections.redact(err)}`);
+        }
+      }
+      return buildSyncScript({ diff, source, target, createStatements, tables: req.tables, includeDrops: req.includeDrops });
+    },
+
     cancelQuery: async (req) => this.queries.cancel(req.queryId),
 
     applyEdits: async (req) => {
@@ -566,6 +624,68 @@ export class MessageRouter {
       return true;
     },
   };
+
+  private async assertDatabaseExists(connectionId: string, database: string): Promise<void> {
+    const has = (list: DatabaseInfo[]) => list.some((d) => d.name === database);
+    if (has(await this.metadata.databases(connectionId)) || has(await this.metadata.databases(connectionId, true))) return;
+    throw new DeepDiveError(`Database "${database}" was not found on "${this.safeName(connectionId)}"`, 'NOT_FOUND');
+  }
+
+  private async compareSchemaPair(
+    source: SchemaRef,
+    target: SchemaRef,
+    options: SchemaCompareOptions,
+    refresh: boolean,
+  ): Promise<{ diff: SchemaDiff; source: DatabaseSchema; target: DatabaseSchema }> {
+    if (source.connectionId === target.connectionId && source.database === target.database) throw validationError('Choose two different databases to compare');
+    this.driver(source.connectionId);
+    this.driver(target.connectionId);
+    await Promise.all([this.assertDatabaseExists(source.connectionId, source.database), this.assertDatabaseExists(target.connectionId, target.database)]);
+    const [src, tgt] = await Promise.all([this.metadata.schema(source.connectionId, source.database, refresh), this.metadata.schema(target.connectionId, target.database, refresh)]);
+    const tables = diffSchemas(src, tgt, options);
+    return { diff: { source, target, options, tables, summary: summarizeDiff(tables), comparedAt: Date.now() }, source: src, target: tgt };
+  }
+
+  /** Compares every non-system database present on both servers (matched by name); reports the rest as missing. */
+  private async runServerCompare(r: RequestOf<'compareServers'>, controller: AbortController): Promise<void> {
+    const emit = (p: Omit<ServerCompareProgress, 'compareId'>) => this.bridge.emit({ type: 'serverCompareProgress', progress: { compareId: r.compareId, ...p } });
+    let done = 0;
+    let total = 0;
+    try {
+      const [a, b] = await Promise.all([this.metadata.databases(r.sourceConnectionId, true), this.metadata.databases(r.targetConnectionId, true)]);
+      const key = (n: string) => (r.options.ignoreCase ? n.toLowerCase() : n);
+      const userDbs = (l: DatabaseInfo[]) => l.filter((d) => !d.isSystem);
+      const targetByKey = new Map(userDbs(b).map((d) => [key(d.name), d.name]));
+      const sourceKeys = new Set(userDbs(a).map((d) => key(d.name)));
+      const missing: ServerCompareRow[] = [
+        ...userDbs(a).filter((d) => !targetByKey.has(key(d.name))).map((d): ServerCompareRow => ({ database: d.name, status: 'only_source' })),
+        ...userDbs(b).filter((d) => !sourceKeys.has(key(d.name))).map((d): ServerCompareRow => ({ database: d.name, status: 'only_target' })),
+      ];
+      const queue = userDbs(a).flatMap((d) => (targetByKey.has(key(d.name)) ? [{ source: d.name, target: targetByKey.get(key(d.name))! }] : []));
+      total = queue.length;
+      emit({ done, total, rows: missing, finished: false });
+      const worker = async () => {
+        for (let m = queue.shift(); m && !controller.signal.aborted; m = queue.shift()) {
+          emit({ done, total, current: m.source, finished: false });
+          let row: ServerCompareRow;
+          try {
+            const [s, t] = await Promise.all([this.metadata.schema(r.sourceConnectionId, m.source, true), this.metadata.schema(r.targetConnectionId, m.target, true)]);
+            const summary = summarizeDiff(diffSchemas(s, t, r.options));
+            row = { database: m.source, status: schemaStatus(summary), summary };
+          } catch (err) {
+            row = { database: m.source, status: 'error', error: this.connections.redact(err) };
+          }
+          done++;
+          emit({ done, total, rows: [row], finished: false });
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(SERVER_COMPARE_CONCURRENCY, total) }, worker));
+      emit({ done, total, finished: true, cancelled: controller.signal.aborted });
+      this.log('info', `Compared servers "${this.safeName(r.sourceConnectionId)}" and "${this.safeName(r.targetConnectionId)}": ${done} database(s) compared, ${missing.length} on one side only${controller.signal.aborted ? ' (cancelled)' : ''}`);
+    } catch (err) {
+      emit({ done, total, finished: true, error: this.connections.redact(err) });
+    }
+  }
 
   private emitSavedQueries(): void {
     this.bridge.emit({ type: 'savedQueriesChanged', savedQueries: this.library.listSaved() });

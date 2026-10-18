@@ -18,7 +18,10 @@ import type {
   MultiRunSnapshot,
   MultiRunSummary,
   SavedQuery,
+  SchemaDiff,
+  ServerCompareProgress,
   SqlStatementResult,
+  SyncScript,
   TableDetails,
   TableInfo,
   TableLocation,
@@ -149,6 +152,14 @@ export const savedQueryInputSchema = z.object({
   database: ident.optional(),
 });
 
+export const compareOptionsSchema = z.object({
+  ignoreColumnOrder: z.boolean(),
+  ignoreComments: z.boolean(),
+  normalizeTypes: z.boolean(),
+  ignoreCase: z.boolean(),
+});
+const schemaRefSchema = z.object({ connectionId: id, database: ident });
+
 const rowEditSchema = z.object({
   key: z.record(ident, scalar),
   changes: z.record(ident, scalar),
@@ -227,6 +238,18 @@ export const requestSchema = z.discriminatedUnion('type', [
     database: ident.optional(),
   }),
   z.object({ type: z.literal('cancelMultiRun'), runId: id }),
+  z.object({ type: z.literal('compareSchemas'), source: schemaRefSchema, target: schemaRefSchema, options: compareOptionsSchema }),
+  z.object({ type: z.literal('compareServers'), compareId: id, sourceConnectionId: id, targetConnectionId: id, options: compareOptionsSchema }),
+  z.object({ type: z.literal('cancelCompare'), compareId: id }),
+  z.object({
+    type: z.literal('generateSyncScript'),
+    source: schemaRefSchema,
+    target: schemaRefSchema,
+    options: compareOptionsSchema,
+    /** Source table names to include; all differing tables when omitted. */
+    tables: z.array(ident).max(10_000).optional(),
+    includeDrops: z.boolean(),
+  }),
   z.object({ type: z.literal('cancelQuery'), queryId: id }),
   z.object({
     type: z.literal('applyEdits'),
@@ -300,6 +323,10 @@ export interface ResponseMap {
   runSqlMulti: MultiRunSnapshot;
   retryMultiRun: MultiRunSnapshot;
   cancelMultiRun: boolean;
+  compareSchemas: SchemaDiff;
+  compareServers: { started: true };
+  cancelCompare: boolean;
+  generateSyncScript: SyncScript;
   cancelQuery: boolean;
   applyEdits: EditResult;
   searchMetadata: { hits: MetadataHit[]; limited: boolean; errors: string[] };
@@ -320,7 +347,8 @@ export type HostEvent =
   | { type: 'savedQueriesChanged'; savedQueries: SavedQuery[] }
   | { type: 'historyChanged' }
   | { type: 'multiRunProgress'; progress: MultiRunProgress }
-  | { type: 'multiRunFinished'; summary: MultiRunSummary };
+  | { type: 'multiRunFinished'; summary: MultiRunSummary }
+  | { type: 'serverCompareProgress'; progress: ServerCompareProgress };
 
 export interface ErrorPayload {
   message: string;

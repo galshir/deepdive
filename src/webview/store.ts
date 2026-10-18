@@ -16,6 +16,9 @@ import type {
   QueryModel,
   QueryResult,
   SavedQuery,
+  SchemaCompareOptions,
+  SchemaDiff,
+  ServerCompareRow,
   SortSpec,
   SqlStatementResult,
   TableDetails,
@@ -41,7 +44,7 @@ export type Selection =
   | { kind: 'relationship'; connectionId: string; fk: ForeignKeyInfo }
   | null;
 
-export type FixedTab = 'graph' | 'schema' | 'builder' | 'sql' | 'search';
+export type FixedTab = 'graph' | 'schema' | 'builder' | 'sql' | 'search' | 'compare';
 export interface DataTab {
   id: string;
   kind: 'data';
@@ -122,6 +125,35 @@ export interface SqlState {
   multiError?: string;
 }
 
+export interface CompareSide {
+  connectionId?: string;
+  database?: string;
+}
+
+export interface ServerCompareState {
+  compareId: string;
+  sourceConnectionId: string;
+  targetConnectionId: string;
+  running: boolean;
+  done: number;
+  total: number;
+  current?: string;
+  rows: ServerCompareRow[];
+  cancelled?: boolean;
+  error?: string;
+}
+
+export interface CompareState {
+  level: 'schema' | 'server';
+  source: CompareSide;
+  target: CompareSide;
+  options: SchemaCompareOptions;
+  schema?: { loading: boolean; error?: string; diff?: SchemaDiff };
+  server?: ServerCompareState;
+}
+
+export const DEFAULT_COMPARE_OPTIONS: SchemaCompareOptions = { ignoreColumnOrder: true, ignoreComments: true, normalizeTypes: false, ignoreCase: false };
+
 export interface SearchState {
   mode: 'metadata' | 'data';
   term: string;
@@ -183,6 +215,7 @@ interface Store {
   builder: BuilderState;
   sql: SqlState;
   search: SearchState;
+  compare: CompareState;
   logs: LogEntry[];
   toasts: Toast[];
   connectionForm: { open: boolean; editing?: ConnectionConfig };
@@ -211,6 +244,7 @@ interface Store {
   updateBuilder: (patch: Partial<BuilderState> | ((s: BuilderState) => Partial<BuilderState>)) => void;
   updateSql: (patch: Partial<SqlState> | ((s: SqlState) => Partial<SqlState>)) => void;
   updateSearch: (patch: Partial<SearchState> | ((s: SearchState) => Partial<SearchState>)) => void;
+  updateCompare: (patch: Partial<CompareState> | ((s: CompareState) => Partial<CompareState>)) => void;
   addLog: (entry: LogEntry) => void;
   openSqlWith: (sql: string, connectionId?: string, database?: string) => void;
   searchMetadata: (term: string) => void;
@@ -229,6 +263,7 @@ const FIXED_TABS: Tab[] = [
   { id: 'builder', kind: 'builder' },
   { id: 'sql', kind: 'sql' },
   { id: 'search', kind: 'search' },
+  { id: 'compare', kind: 'compare' },
 ];
 
 const DEFAULT_SETTINGS: UiSettings = {
@@ -305,6 +340,7 @@ export const useStore = create<Store>((set, get) => {
       connectionIds: [],
       data: { tables: [], match: 'contains', perTableLimit: 20, running: false, done: 0, total: 0, results: [] },
     },
+    compare: { level: 'schema', source: {}, target: {}, options: DEFAULT_COMPARE_OPTIONS },
     logs: [],
     toasts: [],
     connectionForm: { open: false },
@@ -426,6 +462,7 @@ export const useStore = create<Store>((set, get) => {
     updateBuilder: (patch) => set((s) => ({ builder: { ...s.builder, ...(typeof patch === 'function' ? patch(s.builder) : patch) } })),
     updateSql: (patch) => set((s) => ({ sql: { ...s.sql, ...(typeof patch === 'function' ? patch(s.sql) : patch) } })),
     updateSearch: (patch) => set((s) => ({ search: { ...s.search, ...(typeof patch === 'function' ? patch(s.search) : patch) } })),
+    updateCompare: (patch) => set((s) => ({ compare: { ...s.compare, ...(typeof patch === 'function' ? patch(s.compare) : patch) } })),
 
     addLog: (entry) => set((s) => ({ logs: [...s.logs.slice(-499), entry] })),
 

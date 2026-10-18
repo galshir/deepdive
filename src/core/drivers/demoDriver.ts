@@ -97,6 +97,13 @@ export class DemoDriver implements DbDriver {
     }));
   }
 
+  async showCreateTable(database: string, table: string): Promise<string> {
+    this.assertDatabase(database);
+    const row = this.all(`SELECT sql FROM ${quoteIdent(database)}.sqlite_master WHERE type IN ('table','view') AND name = ?`, [table])[0];
+    if (!row) throw new DeepDiveError(`Table ${database}.${table} was not found`, 'NOT_FOUND');
+    return String(row.sql);
+  }
+
   async locateTable(table: string, column?: string): Promise<TableLocation[]> {
     const out: TableLocation[] = [];
     for (const database of this.databases) {

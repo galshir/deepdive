@@ -44,6 +44,9 @@ class FakeDriver implements DbDriver {
   async locateTable() {
     return [];
   }
+  async showCreateTable(): Promise<never> {
+    throw new DeepDiveError('nope', 'NOT_FOUND');
+  }
   query(_sql: string, _p: unknown, options: QueryOptions): Promise<QueryResult> {
     return new Promise((resolve, reject) => {
       const done = setTimeout(() => resolve({ kind: 'rows', columns: [{ name: 'x' }], rows: [[1]], truncated: false, durationMs: this.queryDelay }), this.queryDelay);

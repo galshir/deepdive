@@ -184,6 +184,13 @@ export class MysqlDriver implements DbDriver {
     return this.tableRows(rows);
   }
 
+  async showCreateTable(database: string, table: string): Promise<string> {
+    const rows = await this.meta(`SHOW CREATE TABLE ${quoteIdent(database)}.${quoteIdent(table)}`);
+    const ddl = rows[0]?.['Create Table'] ?? rows[0]?.['Create View'];
+    if (ddl === undefined) throw new DeepDiveError(`Table ${database}.${table} was not found`, 'NOT_FOUND');
+    return str(ddl);
+  }
+
   async locateTable(table: string, column?: string): Promise<TableLocation[]> {
     if (column === undefined) {
       const rows = await this.meta('SELECT TABLE_SCHEMA AS db FROM information_schema.TABLES WHERE TABLE_NAME = ? ORDER BY TABLE_SCHEMA', [table]);

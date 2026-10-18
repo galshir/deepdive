@@ -476,3 +476,96 @@ export interface TableLocation {
   /** Only set when a column was asked for. */
   hasColumn?: boolean;
 }
+
+// ---------- Schema compare ----------
+
+export interface SchemaCompareOptions {
+  ignoreColumnOrder: boolean;
+  ignoreComments: boolean;
+  /** Treat MySQL version differences as equal: integer display widths (int(11) vs int) and default-value spelling. */
+  normalizeTypes: boolean;
+  /** Match table, column, index and constraint names case-insensitively. */
+  ignoreCase: boolean;
+}
+
+export interface SchemaRef {
+  connectionId: string;
+  database: string;
+}
+
+/** Relative to the source: only_source means "missing in target", only_target means "missing in source". */
+export type DiffStatus = 'same' | 'only_source' | 'only_target' | 'changed';
+
+export interface FieldDiff {
+  field: string;
+  source: string | null;
+  target: string | null;
+}
+
+export interface ObjectDiff {
+  kind: 'column' | 'index' | 'foreignKey';
+  /** Source name when the object exists in the source, otherwise the target name. */
+  name: string;
+  /** Set when an index or foreign key has the same definition but a different name in the target. */
+  targetName?: string;
+  status: DiffStatus;
+  changes: FieldDiff[];
+  /** Human-readable definitions, for side-by-side display. */
+  source?: string;
+  target?: string;
+}
+
+export interface TableDiff {
+  name: string;
+  /** Set when the target spells the name differently (only possible when ignoring case). */
+  targetName?: string;
+  type: 'table' | 'view';
+  status: DiffStatus;
+  /** Table-level changes (type, engine, comment). */
+  changes: FieldDiff[];
+  columns: ObjectDiff[];
+  indexes: ObjectDiff[];
+  foreignKeys: ObjectDiff[];
+}
+
+export interface SchemaDiffSummary {
+  tables: Record<DiffStatus, number>;
+  /** Column, index and foreign-key differences inside tables present on both sides. */
+  objects: Record<Exclude<DiffStatus, 'same'>, number>;
+}
+
+export interface SchemaDiff {
+  source: SchemaRef;
+  target: SchemaRef;
+  options: SchemaCompareOptions;
+  tables: TableDiff[];
+  summary: SchemaDiffSummary;
+  comparedAt: number;
+}
+
+export interface ServerCompareRow {
+  database: string;
+  status: DiffStatus | 'error';
+  summary?: SchemaDiffSummary;
+  error?: string;
+}
+
+export interface ServerCompareProgress {
+  compareId: string;
+  done: number;
+  total: number;
+  current?: string;
+  rows?: ServerCompareRow[];
+  finished: boolean;
+  cancelled?: boolean;
+  /** Set when the comparison could not run at all (e.g. a connection dropped). */
+  error?: string;
+}
+
+export interface SyncScript {
+  /** The script with explanatory comments, ready to open in the SQL editor. */
+  script: string;
+  /** Executable statements, in order. */
+  statements: string[];
+  warnings: string[];
+}

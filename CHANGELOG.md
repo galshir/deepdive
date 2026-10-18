@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Schema compare: a new *Compare* tab that compares two databases (same or different servers, e.g. QA vs Staging) and reports missing and differing tables, columns, indexes and foreign keys, with options to ignore column order, comments, MySQL version differences and letter case.
+- Server-level compare: match databases of two connections by name, compare every pair, and list databases that exist on one side only.
+- Sync scripts: generate the CREATE/ALTER statements that bring the target in line with the source (MySQL), open them in the SQL editor or run them on the target after confirmation.
+
 ## 0.2.0
 
 - Saved queries: name, describe and tag SQL from the editor (Cmd/Ctrl+Shift+S), optionally tied to a connection and database; load, insert or run them from the new **Queries** panel.

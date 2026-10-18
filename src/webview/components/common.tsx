@@ -46,11 +46,17 @@ export function ConnectionDatabasePicker({
   database,
   onChange,
   allowNoDatabase,
+  hideDatabase,
+  label,
 }: {
   connectionId?: string;
   database?: string;
   onChange: (connectionId: string | undefined, database: string | undefined) => void;
   allowNoDatabase?: boolean;
+  /** Only choose a connection. */
+  hideDatabase?: boolean;
+  /** Prefix for the accessible names, e.g. "Source". */
+  label?: string;
 }) {
   const connections = useStore((s) => s.connections);
   const dbs = useStore((s) => (connectionId ? s.databases[connectionId] : undefined));
@@ -61,7 +67,7 @@ export function ConnectionDatabasePicker({
     <div className="picker">
       {conn ? <ConnDot color={conn.config.color} status={conn.status} /> : null}
       <select
-        aria-label="Connection"
+        aria-label={label ? `${label} connection` : 'Connection'}
         value={connectionId ?? ''}
         onChange={(e) => {
           const id = e.target.value || undefined;
@@ -76,16 +82,18 @@ export function ConnectionDatabasePicker({
           </option>
         ))}
       </select>
-      <select aria-label="Database" value={database ?? ''} disabled={!connectionId} onChange={(e) => onChange(connectionId, e.target.value || undefined)}>
-        <option value="">{allowNoDatabase ? '(no default database)' : 'Select database…'}</option>
-        {(dbs?.data ?? [])
-          .filter((d) => showSystem || !d.isSystem || d.name === database)
-          .map((d) => (
-            <option key={d.name} value={d.name}>
-              {d.name}
-            </option>
-          ))}
-      </select>
+      {hideDatabase ? null : (
+        <select aria-label={label ? `${label} database` : 'Database'} value={database ?? ''} disabled={!connectionId} onChange={(e) => onChange(connectionId, e.target.value || undefined)}>
+          <option value="">{allowNoDatabase ? '(no default database)' : 'Select database…'}</option>
+          {(dbs?.data ?? [])
+            .filter((d) => showSystem || !d.isSystem || d.name === database)
+            .map((d) => (
+              <option key={d.name} value={d.name}>
+                {d.name}
+              </option>
+            ))}
+        </select>
+      )}
       {dbs?.status === 'loading' ? <Spinner /> : null}
     </div>
   );

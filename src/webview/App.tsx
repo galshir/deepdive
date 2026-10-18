@@ -16,6 +16,7 @@ import { SchemaView } from './views/SchemaView';
 import { SearchView } from './views/SearchView';
 import { SqlEditorView } from './views/SqlEditorView';
 import { TableDataView } from './views/TableDataView';
+import { CompareView } from './views/compare/CompareView';
 
 const FIXED: Record<FixedTab, { label: string; icon: IconName }> = {
   graph: { label: 'Graph', icon: 'graph' },
@@ -23,6 +24,7 @@ const FIXED: Record<FixedTab, { label: string; icon: IconName }> = {
   builder: { label: 'Query builder', icon: 'builder' },
   sql: { label: 'SQL editor', icon: 'code' },
   search: { label: 'Search', icon: 'search' },
+  compare: { label: 'Compare', icon: 'diff' },
 };
 
 function useHostEvents() {
@@ -86,6 +88,25 @@ function useHostEvents() {
                 summary: run.summary.attempt < p.attempt ? { ...run.summary, attempt: p.attempt, running: true } : run.summary,
                 targets: { ...run.targets, [db]: p.target },
                 results: p.results ? { ...run.results, [db]: { ...run.results[db], ...p.results } } : run.results,
+              },
+            };
+          });
+          break;
+        }
+        case 'serverCompareProgress': {
+          const p = e.progress;
+          st().updateCompare((c) => {
+            if (c.server?.compareId !== p.compareId) return {};
+            return {
+              server: {
+                ...c.server,
+                done: p.done,
+                total: p.total,
+                current: p.finished ? undefined : p.current,
+                rows: p.rows ? [...c.server.rows, ...p.rows] : c.server.rows,
+                running: !p.finished,
+                cancelled: p.cancelled,
+                error: p.error,
               },
             };
           });
@@ -164,6 +185,8 @@ function ActiveView() {
       return <SqlEditorView />;
     case 'search':
       return <SearchView />;
+    case 'compare':
+      return <CompareView />;
     case 'data':
       return <TableDataView key={active} tab={tab} />;
     default:
